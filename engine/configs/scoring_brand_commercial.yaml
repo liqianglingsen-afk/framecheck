@@ -1,0 +1,14 @@
+preset: brand_commercial
+name: 品牌宣传片后期评分
+description: 重点关注调色统一性、高级感、声音质感、镜头节奏和品牌视觉一致性。
+emphasis:
+  - 调色统一性
+  - 高级感
+  - 镜头节奏
+  - 声音质感
+  - 场景干净度
+thresholds:
+  color_inconsistency_max: 38
+  contrast_min: 35
+  peak_db_max: -1
+  min_resolution: 1080

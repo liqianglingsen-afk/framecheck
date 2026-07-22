@@ -1,0 +1,19 @@
+preset: default
+name: 通用视频后期评分
+description: 适合普通视频，按通用后期质量标准评分。
+weights:
+  visual_quality: 25
+  color_grading: 20
+  editing_rhythm: 15
+  audio_quality: 15
+  subtitles_graphics: 10
+  commercial_expression: 10
+  export_specs: 5
+thresholds:
+  sharpness_min: 80
+  underexposed_ratio_max: 0.08
+  overexposed_ratio_max: 0.04
+  contrast_min: 32
+  saturation_low: 28
+  saturation_high: 110
+  repeated_frame_ratio_max: 0.12

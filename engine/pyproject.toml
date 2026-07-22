@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "postscore-ai"
+version = "0.1.0"
+description = "Local video post-production quality scoring and QC report generator."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "postscore-ai" }]
+dependencies = [
+  "opencv-python>=4.8",
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "Jinja2>=3.1",
+  "plotly>=5.18",
+  "PyYAML>=6.0",
+  "pydantic>=2.0",
+  "rich>=13.0",
+  "yt-dlp>=2024.1.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+postscore = "postscore.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+postscore = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

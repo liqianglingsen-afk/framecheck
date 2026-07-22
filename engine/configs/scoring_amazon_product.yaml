@@ -1,0 +1,14 @@
+preset: amazon_product
+name: Amazon 产品视频后期评分
+description: 重点关注产品主体清晰度、颜色准确性、背景干净度和电商转化表现。
+emphasis:
+  - 产品主体清晰
+  - 产品颜色准确
+  - 背景干净
+  - 字幕清楚
+  - 不过度电影感
+thresholds:
+  center_sharpness_min: 80
+  saturation_high: 105
+  bottom_activity_max: 0.11
+  min_resolution: 1080

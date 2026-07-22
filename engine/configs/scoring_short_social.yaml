@@ -1,0 +1,14 @@
+preset: short_social
+name: 短视频平台后期评分
+description: 适合抖音、TikTok、小红书、Reels，强调前 3 秒、节奏、字幕和手机端安全区。
+emphasis:
+  - 前 3 秒视觉吸引力
+  - 剪辑节奏
+  - 字幕可读性
+  - 人声响度
+  - 移动端安全边距
+thresholds:
+  avg_shot_length_max: 4.5
+  bottom_activity_max: 0.12
+  safe_margin_risk_max: 0.08
+  repeated_frame_ratio_max: 0.10
