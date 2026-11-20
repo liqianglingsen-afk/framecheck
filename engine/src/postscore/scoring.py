@@ -49,6 +49,12 @@ def publish_recommendation(score: float) -> str:
 MINIMUM_OPTIMIZATION_SCORE = 85
 
 
+def repeated_frame_limit():
+    from importlib.resources import files
+    import json
+    return json.loads(files("postscore").joinpath("qc_thresholds.json").read_text())["repeated_frame_ratio_max"]
+
+
 def check_optimization(score: float, target: int, *, measured: bool, mock: bool) -> OptimizationCheck:
     if not MINIMUM_OPTIMIZATION_SCORE <= target <= 100:
         raise ValueError("短视频优化目标须在 85 到 100 之间")
@@ -345,7 +351,8 @@ def _score_editing(metrics: dict[str, Any], issues: list[Issue], impacts: dict[s
             threshold="0",
         )
     repeated_ratio = metrics.get("repeated_frame_ratio")
-    if repeated_ratio is not None and repeated_ratio > 0.12:
+    limit = repeated_frame_limit()
+    if repeated_ratio is not None and repeated_ratio > limit:
         _add_issue(
             issues,
             impacts,
@@ -356,7 +363,7 @@ def _score_editing(metrics: dict[str, Any], issues: list[Issue], impacts: dict[s
             recommendation="逐帧区分卡顿、读屏停留与有意静止。对多余停顿标记入出点，用 trim/atrim 联动剪除，回看动作与口播是否连贯。",
             timestamp_start=None,
             metric_value=repeated_ratio,
-            threshold="<= 0.12",
+            threshold=f"<= {limit}",
         )
     static = _first(metrics.get("static_segments"))
     if static:

@@ -146,7 +146,7 @@ def draw_box(frame, box, color):
     )
 
 
-def placement_review(spec, directory, cap, timestamps, duration, out, index):
+def placement_review(spec, directory, cap, timestamps, duration, out, index, required=None):
     reference = (directory / spec.reference).resolve()
     ref = read_image(reference, cv2, np) if reference.is_file() else None
     if ref is None:
@@ -185,7 +185,18 @@ def placement_review(spec, directory, cap, timestamps, duration, out, index):
             previews.append(dict(image=name, clean=clean, element=track.name, time=t))
     ref_name = f"ui-reference-{index}.jpg"
     save_image(out / ref_name, ref)
-    verified = spec.source == "版位实证" and spec.coverage_checked
+    coverage = spec.coverage_checked
+    if required is not None:
+        coverage = coverage and bool(required)
+        for name,spans in required.items():
+            tracks = [t for t in spec.tracks if t.name == name]
+            for span in spans:
+                active = timestamps[(timestamps >= span.start) & (timestamps < span.end)]
+                observed = np.zeros(len(active), dtype=bool)
+                for t in tracks:
+                    observed |= (active >= t.keys[0].time) & (active < t.end)
+                coverage = coverage and bool(len(active)) and bool(np.all(observed))
+    verified = spec.source == "版位实证" and coverage
     status = (
         ("须修" if hits else "通过")
         if verified
@@ -199,7 +210,7 @@ def placement_review(spec, directory, cap, timestamps, duration, out, index):
         reference_date=spec.reference_date.isoformat(),
         reference_sha256=digest(reference),
         reference_image=ref_name,
-        coverage_checked=spec.coverage_checked,
+        coverage_checked=coverage,
         status=status,
         hits=hits,
         previews=previews,

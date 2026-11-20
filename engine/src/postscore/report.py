@@ -10,7 +10,7 @@ from typing import Any
 from .models import AudioMetrics, Issue, Keyframe, ReviewReport, VideoInfo, model_to_dict
 from .editorial import render_editorial
 from .scoring import MODULES, score_report
-from .utils import ensure_dir, package_root, safe_slug, seconds_to_label
+from .utils import ensure_dir, safe_slug, seconds_to_label
 
 
 METRIC_LABELS_ZH: dict[str, str] = {
@@ -71,8 +71,20 @@ def write_reports(
 def render_html(report: ReviewReport, output_dir: Path | None = None) -> str:
     """Render a single-file Chinese QC report, using Jinja2 when installed."""
     output_dir = output_dir or Path.cwd()
+    display_score = report.technical_display
+    if report.technical:
+        raw = report
+        report = raw.model_copy(deep=True)
+        report.issues = raw.applicable_issues
+        report.module_scores.update(raw.technical["modules"])
+        for key in raw.technical["excluded"]:
+            report.module_scores.pop(key,None)
+        if "audio_quality" in raw.technical["excluded"]:
+            report.audio_metrics.recommendations = ["本次声音交付约定 · " + raw.technical["excluded"]["audio_quality"]]
+
     context = {
         "report": report,
+        "display_score": display_score,
         "editorial_html": render_editorial(report.editorial, output_dir) if report.editorial else "",
         "modules": _module_cards(report),
         "top_issues": report.issues[:10],
@@ -83,16 +95,25 @@ def render_html(report: ReviewReport, output_dir: Path | None = None) -> str:
         "format_metrics": _format_metrics_zh,
         "format_metric_value": _format_metric_value_zh,
     }
-    template_path = package_root() / "templates" / "report.html.j2"
+    if report.technical:
+        q = report.technical
+        context["editorial_html"] += (f'<section class="panel"><h2>按简报技术验收</h2><p>{display_score} / 100 · 实得 {q["earned"]}/{q["possible"]} · 原始 {q["raw"]}</p>'
+            + html.escape(" · ".join(list(q["excluded"].values()) + list(q["signals"]) + ["交付规范待核 · "+t for t in q.get("pending_signals",[])] + q["blockers"])) + '</section>')
+    if report.frame_coverage:
+        c = report.frame_coverage
+        context["editorial_html"] += (f'<p>检查覆盖 · {c["mode"]} · {c["decoded"]} 帧 · {c["status"]}</p>'
+            + "".join(f'<p>逐帧区间 {lo:g}–{hi:g} 秒</p>' for lo,hi in c.get("windows") or [])
+            + "".join(f'<p>候选帧 {item["frame"]} · {item["time"]:.4f} 秒</p>' for item in c.get("candidates",[])))
+    template_name = "report.html.j2"
     try:
-        from jinja2 import Environment, FileSystemLoader
+        from jinja2 import Environment, PackageLoader
 
         env = Environment(
-            loader=FileSystemLoader(str(template_path.parent)),
+            loader=PackageLoader("postscore","views"),
             autoescape=True,
         )
-        return env.get_template(template_path.name).render(**context)
-    except Exception:
+        return env.get_template(template_name).render(**context)
+    except ImportError:
         return _fallback_html(report, context)
 
 
@@ -179,6 +200,8 @@ def create_mock_report(
 def _module_cards(report: ReviewReport) -> list[dict[str, Any]]:
     cards = []
     for key, (name, max_score) in MODULES.items():
+        if key not in report.module_scores:
+            continue
         score = report.module_scores.get(key, 0)
         cards.append({"key": key, "name": name, "score": score, "max": max_score, "percent": round(score / max_score * 100, 1)})
     return cards
@@ -193,7 +216,7 @@ def _radar_svg(report: ReviewReport) -> str:
     labels = []
     center = 145
     radius = 105
-    modules = list(MODULES.items())
+    modules = [(k,v) for k,v in MODULES.items() if k in report.module_scores]
     for index, (key, (name, max_score)) in enumerate(modules):
         angle = -math.pi / 2 + index * 2 * math.pi / len(modules)
         percent = report.module_scores.get(key, 0) / max_score
@@ -298,9 +321,10 @@ def _fallback_html(report: ReviewReport, context: dict[str, Any]) -> str:
         f"<article class='issue low'><img src='{html.escape(asset_path(frame.path))}' alt='关键帧'><div><b>{html.escape(frame.timestamp_label)}</b><p class='muted'>关键指标：{html.escape(format_metrics(frame.metrics))}</p></div></article>"
         for frame in report.keyframes[:8]
     )
+    technical_score = report.technical_display
     verdict_items = [
         ("后期优化验收" if report.optimization else "是否可发布", report.publish_recommendation),
-        ("是否适合投放", "适合投放" if report.overall_score >= 85 else "建议优化后再投放"),
+        ("投放效果", "待同版位实测"),
         ("是否建议重剪", "是" if report.module_scores.get("editing_rhythm", 0) < 10 else "否"),
         ("是否建议重调色", "是" if report.module_scores.get("color_grading", 0) < 14 else "否"),
         ("是否建议重新导出", "是" if report.module_scores.get("export_specs", 0) < 4 else "否"),
@@ -308,7 +332,7 @@ def _fallback_html(report: ReviewReport, context: dict[str, Any]) -> str:
     if report.optimization:
         verdict_items[1] = ("验收目标", f"{report.optimization.target} / 100，内容拆解另评")
     if report.editorial and not report.optimization:
-        verdict_items[:2] = [("传播审片", report.editorial["status"]), ("后期技术", f"{report.overall_score} / 100")]
+        verdict_items[:2] = [("传播审片", report.editorial["status"]), ("后期技术", f"{technical_score} / 100")]
     verdict_html = "".join(
         "<div class='verdict-item{primary}'><span>{label}</span><b>{value}</b></div>".format(
             primary=" primary" if idx == 0 else "",
@@ -324,7 +348,7 @@ def _fallback_html(report: ReviewReport, context: dict[str, Any]) -> str:
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>视频后期评分报告</title>{_fallback_css()}</head>
 <body><main>
-<section class="hero"><div><p>视频后期评分系统</p><h1>{html.escape(report.video_info.filename)}</h1><p>{html.escape(report.editorial["status"] if report.editorial else report.publish_recommendation)}</p></div><div class="score">{report.overall_score}<small>{report.grade}</small></div></section>
+<section class="hero"><div><p>视频后期评分系统</p><h1>{html.escape(report.video_info.filename)}</h1><p>{html.escape(report.editorial["status"] if report.editorial else report.publish_recommendation)}</p></div><div class="score">{technical_score}<small>原始等级 {report.grade}</small></div></section>
 <section class="panel verdict-panel"><h2>最终建议</h2><div class="verdict-grid">{verdict_html}</div></section>
 {context["editorial_html"]}
 <section class="grid">{module_cards}</section>

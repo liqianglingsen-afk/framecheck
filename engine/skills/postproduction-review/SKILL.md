@@ -7,9 +7,9 @@ description: Use when the user asks for local video post-production scoring, bat
 
 这个 Skill 用于调用 `postscore-ai` 本地 Python CLI，对视频后期处理品质进行评分，并生成中文 HTML/JSON 报告。
 
-## 综合审片 · 0.5.0
+## 综合审片 · 0.6.0
 
-从 brief 建 editorial-0.5。主任务与辅助切口分别写清；核对独立封面、已证实平台实显、首帧及设计候选，按传播和美学各 50 分；弱封面给两个观看动机。前三秒按主体 4、受众 4、观看理由 5、可信线索 4 逐项给源时码。弱钩子给两个三拍开场。登记亮相、质感、功能及尾镜，逐一注明画面／屏显／字幕／声音的去向。按同机连续实录核复位时间和真实零值。正常播放与静音核对主体关系，错误、擦空或主体误认须在发布前修改。见[填写示例与字段说明](https://github.com/liqianglingsen-afk/creator-video-ops/blob/main/skills/short-video-forensic-teardown/references/creative-evidence.md)。
+postscore brief 生成 editorial-0.6 底稿，先定受众、用途、入口、声音意图与时长。技术检测可指定 --audio-intent，需查孤立闪帧时加 --full-frame-scan 并复看候选。综合审片分别列十维内容、原始与按简报适用项技术分、真实封面与发布状态。弱开场以 3 秒与实际片长的较短者定位，弱列表封面按传播与美学各 50 分检查，按任务保护画面、动作、声音与关键信息。按[字段约定](https://github.com/liqianglingsen-afk/creator-video-ops/blob/main/skills/short-video-forensic-teardown/references/creative-evidence.md)填写 0.6 证据。只做方案交 revision-plan；执行修改交 revision-render 导出和 revision-compare 原改对照。
 
 ## 全片修改与原改复评
 
@@ -55,7 +55,7 @@ description: Use when the user asks for local video post-production scoring, bat
 
 短视频评分、拆解及优化共用[传播与美学审片约定](https://github.com/liqianglingsen-afk/creator-video-ops/blob/main/skills/short-video-forensic-teardown/references/editorial-review.md)。先核目标受众、入口、前三秒承诺及兑现、结尾收益与真实承接，检查哪些镜头必须保留。按事实问题、目标瓶颈、证据和成本选 1–3 项。前台分别显示十维内容分、后期技术分、封面双轴分和发布前问题。按委托制作首选与挑战剪法或封面，复核手机预览与实际导出。单纯评分保留原片。
 
-使用 Framecheck 0.3+ 的 `postscore brief` 创建底稿并由 Codex 依据实际审片填写，再用 `review --editorial` 或 `batch --editorial-dir` 生成报告。初次裸跑技术检查时传播判断待核。纯技术任务可直接交付；用户问传播/转化或综合评分时继续完成可验证的创意审片，包含内容百分制及封面证据。缺真实发布封面或转化组件时写待核，按当前素材提出候选。需要成交、关注或回访数据时用可选的 metrics_csv 导入。
+使用 Framecheck 0.6+ 的 `postscore brief` 创建底稿并由 Codex 依据实际审片填写，再用 `review --editorial` 或 `batch --editorial-dir` 生成报告。初次裸跑技术检查时传播判断待核。纯技术任务可直接交付；用户问传播/转化或综合评分时继续完成可验证的创意审片，包含内容百分制及封面证据。缺真实发布封面或转化组件时写待核，按当前素材提出候选。需要成交、关注或回访数据时用可选的 metrics_csv 导入。
 
 ## 默认命令
 

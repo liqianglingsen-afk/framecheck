@@ -16,4 +16,4 @@ thresholds:
   contrast_min: 32
   saturation_low: 28
   saturation_high: 110
-  repeated_frame_ratio_max: 0.12
+  # Repeated-frame threshold is loaded from postscore/qc_thresholds.json.

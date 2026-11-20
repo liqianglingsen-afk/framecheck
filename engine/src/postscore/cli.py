@@ -49,6 +49,7 @@ class BatchTarget:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="postscore", description="视频后期评分系统 / 后期质检系统")
+    parser.add_argument("--version",action="version",version="postscore "+__version__)
     subparsers = parser.add_subparsers(dest="command")
     review = subparsers.add_parser("review", help="分析视频后期处理质量并生成报告")
     review.add_argument("source", nargs="?", help="本地视频路径或可下载公开视频链接")
@@ -81,6 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     for command in (review, batch):
         command.add_argument("--optimization-target", type=int, choices=range(MINIMUM_OPTIMIZATION_SCORE, 101),
                              metavar="85..100", help="短视频后期验收目标；short_social 默认 85，其他预设可显式启用")
+    review.add_argument("--previous-review",type=Path,help="同一视频更新观察时，核对关联评分与决定是否已复核")
     review.add_argument("--editorial", type=Path, help="本次导出的编辑审片 JSON")
     batch.add_argument("--editorial-dir", type=Path, help="以成片 SHA256.json 命名的审片文件目录")
     calibrate = subparsers.add_parser("calibrate", help="比较两位独立评审首选及报告前三项")
@@ -89,6 +91,10 @@ def build_parser() -> argparse.ArgumentParser:
     brief = subparsers.add_parser("brief", help="为当前文件生成可编辑的传播审片输入")
     brief.add_argument("source", type=Path)
     brief.add_argument("--output", required=True, type=Path)
+    brief.add_argument("--legacy-v05", action="store_true",help="生成历史 0.5 审片底稿")
+    for command in (review,batch):
+        command.add_argument("--full-frame-scan",action="store_true",help="解码全片逐帧检索孤立画面突变候选")
+        command.add_argument("--audio-intent", choices=("必需","可选","设计无声","待核"),help="纯技术任务的声音交付约定")
     from .revision_cli import add_commands
     add_commands(subparsers)
     return parser
@@ -111,7 +117,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
     if args.command in {"brief", "calibrate"}:
         try:
-            data = blank_notes(args.source, current=True) if args.command == "brief" else calibration(args.manifest)
+            data = blank_notes(args.source, current=True, legacy=args.legacy_v05) if args.command == "brief" else calibration(args.manifest)
             with args.output.open("x", encoding="utf-8") as stream:
                 json.dump(data, stream, ensure_ascii=False, indent=2)
             return 0
@@ -191,7 +197,7 @@ def run_batch(args: argparse.Namespace) -> int:
             )
             elapsed = round(time.perf_counter() - started, 2)
             results.append(_batch_success_row(index, target, report, paths, elapsed))
-            print_console(f"[green]完成：{report.video_info.filename} / {report.overall_score} / {report.grade} / {elapsed}s[/green]")
+            print_console(f"[green]完成：{report.video_info.filename} / 后期技术 {report.technical_display} / {elapsed}s[/green]")
         except Exception as exc:
             elapsed = round(time.perf_counter() - started, 2)
             results.append(_batch_failure_row(index, target, exc, elapsed))
@@ -218,11 +224,70 @@ def attach_editorial(args, report) -> None:
     if notes is not None:
         target = report.optimization.target if report.optimization else 85
         report.editorial = evaluate(notes, source, report.issues, target)
-        if report.editorial.get("criteria") and report.optimization and report.optimization.status == "below_target":
+        if not report.editorial.get("brief") and report.editorial.get("criteria") and report.optimization and report.optimization.status == "below_target":
             report.editorial["status"] = "发布前须改"
             report.editorial["blockers"].append(f"后期技术 {report.overall_score:g} 分，低于约定目标 {target}")
     else:
         report.editorial = pending_review()
+    brief = report.editorial.get("brief") or {}
+    audio = getattr(args,"audio_intent",None)
+    if audio and brief and audio != brief["audio_intent"]:
+        raise ValueError("命令行声音意图与简报不一致")
+    if brief or audio:
+        from .scope_qc import scoped_quality
+        if args.mock:
+            raise ValueError("按简报技术验收需要实际文件")
+        q = scoped_quality(report, audio or brief["audio_intent"], brief.get("shot_style","待核"), brief.get("color_style","待核"), brief.get("export_context","待核") if brief else "平台发布")
+        report.technical = q
+        from .scoring import _revision_checklist
+        report.revision_checklist = _revision_checklist(report.applicable_issues, detailed=True)
+        report.export_recommendations = [i.recommendation for i in report.applicable_issues if i.module == "export_specs"]
+        if report.optimization:
+            from .scoring import check_optimization
+            report.optimization = check_optimization(q["score"] or 0,report.optimization.target,measured=q["score"] is not None,mock=False)
+        blocks = q["blockers"].copy()
+        if report.optimization and report.optimization.status == "below_target":
+            blocks.append(report.optimization.verdict)
+        if blocks:
+            report.editorial["status"] = "发布前须改"
+            report.editorial["blockers"].extend(blocks)
+        elif q["score"] is None:
+            report.editorial["status"] = "传播待核"
+        if brief:
+            if not getattr(args,"full_frame_scan",False):
+                from .scope_qc import key_intervals,scan_single_frames
+                windows = key_intervals(report.editorial,report.video_info.duration_seconds)
+                report.frame_coverage = scan_single_frames(source,windows)
+            signals = set(q["signals"]) | set(q["pending_signals"])
+            items = [i for i in report.editorial["findings"] if i["stage"] != "后期技术" or
+                     (i["technical_issue"] not in signals and not (i["technical_issue"] in
+                      {x.problem for x in report.issues if x.module in q["excluded"]}))]
+            report.editorial["findings"] = items
+            chosen = {}
+            for item in items:
+                chosen.setdefault(item["topic"],item)
+            report.editorial["priorities"] = list(chosen.values())[:3]
+    if report.frame_coverage:
+        pending_frames = []
+        reviewed = (report.editorial or {}).get("frame_reviews",{})
+        for frame in report.frame_coverage.get("candidates",[]):
+            check = reviewed.get(str(frame["frame"])) or reviewed.get(frame["frame"])
+            if not check or check["status"] == "待核" or check["evidence"].strip() in {"待核","未知","待填"}:
+                pending_frames.append(frame["frame"])
+            elif check["status"] == "须修":
+                report.editorial["status"] = "发布前须改"
+                report.editorial["blockers"].append(f"第 {frame['frame']} 帧 · {check['evidence']}")
+        if pending_frames and report.editorial["status"] != "发布前须改":
+            report.editorial["status"] = "传播待核"
+        report.frame_coverage["pending_candidates"] = pending_frames
+        if report.frame_coverage.get("candidates") and not pending_frames:
+            report.frame_coverage["status"] = "候选已逐处复核"
+    previous = getattr(args,"previous_review",None)
+    if previous:
+        if not brief:
+            raise ValueError("局部复评需要本次 0.6 审片底稿")
+        from .editorial import check_reassessment
+        check_reassessment(report.editorial,json.loads(previous.read_text(encoding="utf-8")).get("editorial") or {})
     technical = report.optimization.verdict if report.optimization else f"后期技术 {report.overall_score:g}/100"
     if args.mock and not report.optimization:
         technical = "技术示例数据"
@@ -262,7 +327,12 @@ def _analyze_video(args: argparse.Namespace, output_dir: Path):
         optimization_target=args.optimization_target,
     )
     report.sampling = dict(engine=__version__, sample_fps=requested_sample_fps, max_frames=args.max_sampled_frames,
-                           frame_width=args.frame_width, effective_fps=sample_fps)
+                           frame_width=args.frame_width, effective_fps=sample_fps, full_frame_scan=bool(args.full_frame_scan))
+    if getattr(args,"full_frame_scan",False):
+        from .scope_qc import scan_single_frames
+        report.frame_coverage = scan_single_frames(video_path)
+    else:
+        report.frame_coverage = dict(mode="抽样", decoded=len(keyframes),status="仅覆盖抽样点")
     return report
 
 
@@ -318,7 +388,7 @@ def _expand_batch_sources(sources: Sequence[str], recursive: bool = False) -> li
 
 def _batch_success_row(index: int, target: BatchTarget, report, paths: dict[str, Path], elapsed_seconds: float) -> dict[str, object]:
     display_name = _report_display_name(report.video_info.filename, target)
-    top_issues = " | ".join(issue.problem for issue in report.issues[:5]) or "未发现明显扣分项"
+    top_issues = " | ".join(issue.problem for issue in report.applicable_issues[:5]) or "未发现明显扣分项"
     optimization = report.optimization
     return {
         "index": index,
@@ -331,6 +401,11 @@ def _batch_success_row(index: int, target: BatchTarget, report, paths: dict[str,
         "input_source": target.source,
         "origin": target.origin,
         "score": report.overall_score,
+        "technical_score": report.technical["score"] if report.technical else report.overall_score,
+        "technical_display": report.technical_display,
+        "content_score": ((report.editorial or {}).get("content") or {}).get("total"),
+        "cover_status": (report.editorial or {}).get("cover_status","待核"),
+        "cover_score": next((c["total"] for c in (report.editorial or {}).get("covers",[]) if c["role"]=="发布封面"),None),
         "grade": report.grade,
         "recommendation": report.publish_recommendation,
         "optimization_target": optimization.target if optimization else "",
@@ -387,7 +462,7 @@ def _write_batch_outputs(results: list[dict[str, object]], output_dir: Path, bat
         "file_path",
         "input_source",
         "origin",
-        "score",
+        "score", "technical_score", "technical_display", "content_score", "cover_status", "cover_score",
         "grade",
         "recommendation",
         "optimization_target",
@@ -471,6 +546,10 @@ def _render_batch_row(row: dict[str, object], output_dir: Path) -> str:
     source_html = _source_html(row)
     report_links = _report_links(row, output_dir)
     score = html.escape(str(row["score"]))
+    if status == "success":
+        content = row.get("content_score")
+        cover = row.get("cover_score")
+        score = html.escape(f"内容 {content if content is not None else '待核'} · 技术 {row.get('technical_display')} · 封面 {cover if cover is not None else row.get('cover_status','待核')}")
     target_detail = ""
     if row.get("optimization_target"):
         verdict = html.escape(str(row["recommendation"]))
@@ -522,7 +601,7 @@ def _print_batch_summary(results: list[dict[str, object]], paths: dict[str, Path
         if row["status"] == "success":
             detail = f" · {row['recommendation']}" if row.get("optimization_target") else ""
             editorial = " · ".join(str(row[k]) for k in ("editorial_status", "editorial_priority") if row.get(k))
-            lines.append(f"{row['index']}. {row['display_name']}：{row['score']} / {row['grade']}{detail} · {editorial} - {row['top_issues']}")
+            lines.append(f"{row['index']}. {row['display_name']}：技术 {row.get('technical_display')} · 内容 {row.get('content_score') or '待核'} · 封面 {row.get('cover_status')}{detail} · {editorial} - {row['top_issues']}")
         else:
             lines.append(f"{row['index']}. {row['display_name']}：失败 - {row['error']}")
     if "html" in paths:
@@ -564,22 +643,26 @@ def _effective_sample_fps(requested_fps: float, duration_seconds: float, max_sam
 
 
 def _print_summary(report, paths: dict[str, Path]) -> None:
-    top = report.issues[:5]
+    top = report.applicable_issues[:5]
     lines = [
-        f"总分：{report.overall_score}",
-        f"等级：{report.grade}",
+        f"后期技术原始分：{report.overall_score}",
+        f"原始技术等级：{report.grade}",
     ]
+    if report.technical:
+        lines.append(f"按简报技术分 {report.technical_display}（实得 {report.technical['earned']}/{report.technical['possible']}）")
     if report.editorial:
+        content = (report.editorial.get("content") or {}).get("total")
+        lines.append(f"内容分 {content if content is not None else '待核'} · {report.editorial['cover_status']}")
         lines.append("传播审片：" + report.editorial["status"])
         lines.extend(i["topic"] for i in report.editorial["priorities"])
     if report.optimization:
         lines.append(f"后期优化目标 {report.optimization.target} 分 · {report.optimization.verdict}")
-    lines.append("Top 5 问题：")
+    lines.append("按简报需处理的技术项：" if report.technical else "Top 5 问题：")
     if top:
         for index, issue in enumerate(top, start=1):
             lines.append(f"{index}. [{issue.severity}] {issue.problem} - {issue.recommendation}")
     else:
-        lines.append("未发现明显扣分项。")
+        lines.append("暂无需处理的技术项。" if report.technical else "未发现明显扣分项。")
     if "html" in paths:
         lines.append(f"HTML 报告：{paths['html']}")
     if "json" in paths:

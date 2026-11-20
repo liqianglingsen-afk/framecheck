@@ -20,6 +20,8 @@ from .revision import (
     report_summary,
     requires_change,
     seal_plan,
+    verify_inputs,
+    load_json,
     write_json,
 )
 
@@ -44,6 +46,7 @@ def add_commands(sub):
         command.add_argument("--output", required=True, type=Path)
         if name == "revision-blind":
             command.add_argument("--goal", required=True)
+            command.add_argument("--brief",type=Path,help="从新版审片底稿提取盲审简报，隐藏制作者评分")
         if name == "revision-render":
             command.add_argument(
                 "--exec",
@@ -71,7 +74,12 @@ def render(source, plan, editor, output):
         folder = Path(temp) / "export"
         folder.mkdir()
         video = (folder / "edited.mp4").resolve()
-        args = [{"{source}": str(source.resolve()), "{output}": str(video)}.get(x, x) for x in editor]
+        manifest = record["plan"].get("inputs",{})
+        input_hashes = verify_inputs(manifest)
+        paths = {"{asset:"+k+"}": v["path"] for k,v in manifest.items() if v["role"] != "版位参考"}
+        if not set(paths) <= set(editor):
+            raise ValueError("编辑命令须显式引用用到的外部素材 {asset:名称}")
+        args = [(paths | {"{source}": str(source.resolve()), "{output}": str(video)}).get(x, x) for x in editor]
         started = datetime.now(timezone.utc).isoformat()
         subprocess.run(args, check=True)
         info = probe_video(video)
@@ -83,6 +91,7 @@ def render(source, plan, editor, output):
                 raise ValueError("编辑器输出无可解码画面")
         finally:
             cap.release()
+        verify_inputs(manifest)
         if digest(plan) != binding or digest(source) != sha:
             raise ValueError("导出过程中原片或快照发生变化")
         revised_sha = digest(video)
@@ -97,6 +106,8 @@ def render(source, plan, editor, output):
             completed_at=datetime.now(timezone.utc).isoformat(),
             command=editor,
         )
+        if record["schema_version"] == "revision-0.6":
+            receipt.update(schema_version="render-0.6",inputs=input_hashes)
         receipt["seal"] = fingerprint(receipt)
         write_json(folder / "receipt.json", receipt)
         folder.rename(output)
@@ -157,6 +168,9 @@ def run_command(a):
             strategy="",
             next_if_short="",
         )
+        if before.get("editorial_schema") == "editorial-0.6":
+            data.update(schema_version="cut-plan-0.6",route="现有素材剪辑",pickups=[],inputs={},uses=[],decisions={i["id"]:[] for i in before["priorities"]})
+            data["placement_plan"][0]["elements"] = {}
         write_json(a.output, data)
     elif a.command == "revision-plan":
         publish(
@@ -189,8 +203,16 @@ def run_command(a):
             variance="",
             next_edit="",
         )
+        if snap["schema_version"] == "revision-0.6":
+            data["schema_version"] = "cut-audit-0.6"
         write_json(a.output, data)
     elif a.command == "revision-blind":
+        notes = load_json(a.brief) if a.brief else {}
+        if a.brief:
+            from .assessment import Brief
+            notes["brief"] = Brief.model_validate(notes.get("brief")).model_dump()
+        if a.brief and (notes.get("schema_version") != "editorial-0.6" or notes.get("goal") != a.goal):
+            raise ValueError("盲审简报版本或业务目标不符")
         write_json(
             a.output,
             dict(
@@ -200,11 +222,12 @@ def run_command(a):
                 reviewer="",
                 rubric=CREATIVE_WEIGHTS,
                 observations=[],
-                rubric_version="editorial-0.5",
-                hook={k: dict(score=None, evidence="") for k in ("主体与动作", "受众相关", "继续观看理由", "前三秒可信线索")},
+                rubric_version="editorial-0.6" if notes else "editorial-0.5",
+                scope={k:notes.get(k) for k in ("brief","audience","entry","goal")} if notes else None,
+                hook={k: (dict(score=None,evidence="",time=None) if notes else dict(score=None,evidence="")) for k in ("主体与动作", "受众相关", "继续观看理由", "前三秒可信线索")},
                 payoff="",
                 content=dict(
-                    version="creative-100-v1",
+                    version="creative-100-v2" if notes else "creative-100-v1",
                     marks={k: dict(score=None, evidence="") for k in CREATIVE_WEIGHTS},
                 ),
             ),

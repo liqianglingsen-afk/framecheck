@@ -225,3 +225,9 @@ python -m postscore review --mock --html --json
 ## 0.5.0 编辑依据
 
 `postscore brief` 生成 editorial-0.5。填写 criteria 后，review、batch、revision-plan 和 revision-compare 沿用同一审片依据。HTML 呈现封面来源与缩略图、两种观看动机、四项钩子、逐轨镜头取舍，以及屏显参考与复位时刻。数值代表编辑量表；平台行为单独用指标 CSV。编辑的发布前阻碍优先于总分。单独运行技术检测可省略 --editorial。既有 editorial-0.3 记录继续按原始口径读取。
+
+## 0.6.0 委托、证据和复评
+
+`postscore brief clip.mp4 --output notes.json` 生成 editorial-0.6。依简报填写实际镜头、开场时间、结尾作用和分项；不完整的十维返回待核。`review --editorial` 和 `batch --editorial-dir` 同源生成报告。仅技术检查可使用 `--audio-intent 设计无声` 或 `必需`。逐帧检查使用 `--full-frame-scan`，返回解码帧数及孤立突变候选。原始技术分与按任务适用分并列，旧 CSV 的 score 继续指原始技术分。新底稿使用 creative-100-v2，历史 0.3/0.5 数据按其原版本解读。
+
+`revision-init / revision-plan / revision-render / revision-compare` 记录跨轨素材用途和哈希，比较简报、入口、受众及逐元素版位覆盖。独立评审使用 `revision-blind --goal … --brief notes.json` 提取相同简报。相同源文件更新事实可用 `review --previous-review prior.json` 核对评分和首选方案。见配套 [Skill 使用约定](https://github.com/liqianglingsen-afk/creator-video-ops/blob/main/skills/short-video-forensic-teardown/references/creative-evidence.md)。

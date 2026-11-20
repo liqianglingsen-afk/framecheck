@@ -38,7 +38,7 @@ def source(tmp_path_factory):
 @pytest.fixture
 def setup(tmp_path, source):
     notes = tmp_path / "brief.json"
-    assert main(["brief", str(source), "--output", str(notes)]) == 0
+    assert main(["brief", "--legacy-v05", str(source), "--output", str(notes)]) == 0
     n = json.loads(notes.read_text())
     n.update(goal="了解产品", audience="手冲用户", entry="教程列表", bottleneck="前3秒")
     n["checks"] = {

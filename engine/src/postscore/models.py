@@ -67,6 +67,8 @@ class OptimizationCheck(BaseModel):
 
 
 class ReviewReport(BaseModel):
+    technical: dict[str, Any] | None = None
+    frame_coverage: dict[str, Any] | None = None
     sampling: dict[str, Any] | None = None
     editorial: dict[str, Any] | None = None
     optimization: OptimizationCheck | None = None
@@ -85,6 +87,26 @@ class ReviewReport(BaseModel):
     preset: str = "default"
     mode: str = "deep"
     generated_at: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+
+    @property
+    def applicable_issues(self):
+        if not self.technical:
+            return self.issues
+        q = self.technical
+        return [i for i in self.issues if i.module not in q["excluded"] and
+                i.problem not in q["signals"] and i.problem not in q.get("pending_signals",[])]
+
+    @property
+    def technical_display(self):
+        from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
+        score = self.technical["score"] if self.technical else self.overall_score
+        if score is None:
+            return "待核"
+        value = Decimal(str(score))
+        display = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if int(display) != int(value):
+            display = value.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+        return format(display,"f").rstrip("0").rstrip(".")
 
 
 def model_to_dict(model: BaseModel) -> dict[str, Any]:

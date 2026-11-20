@@ -11,4 +11,4 @@ thresholds:
   avg_shot_length_max: 4.5
   bottom_activity_max: 0.12
   safe_margin_risk_max: 0.08
-  repeated_frame_ratio_max: 0.10
+  # Repeated-frame threshold is loaded from postscore/qc_thresholds.json.

@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>视频后期评分报告 - {{ report.video_info.filename }}</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #667085;
+      --line: #dfe5ee;
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --brand: #1e5ca8;
+      --brand-soft: #e7effa;
+      --critical: #7a1020;
+      --high: #d62839;
+      --medium: #f28c28;
+      --low: #60799c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Arial, "Microsoft YaHei", "PingFang SC", sans-serif;
+      line-height: 1.55;
+    }
+    main { max-width: 1220px; margin: 0 auto; padding: 28px; }
+    .hero {
+      display: grid;
+      grid-template-columns: 1fr 220px;
+      gap: 24px;
+      align-items: center;
+      background: #152033;
+      color: white;
+      border-radius: 8px;
+      padding: 30px;
+      box-shadow: 0 18px 50px rgba(16, 24, 40, .16);
+    }
+    .eyebrow { color: #aebcce; font-size: 13px; margin: 0 0 8px; }
+    h1, h2, h3 { margin: 0; letter-spacing: 0; }
+    h1 { font-size: 30px; line-height: 1.22; overflow-wrap: anywhere; }
+    h2 { font-size: 20px; margin-bottom: 14px; }
+    h3 { font-size: 16px; margin-top: 14px; }
+    .hero-meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(110px, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .hero-meta span { display: block; color: #aebcce; font-size: 12px; }
+    .hero-meta b { display: block; font-size: 15px; overflow-wrap: anywhere; }
+    .score-box { text-align: center; border: 1px solid rgba(255,255,255,.2); border-radius: 8px; padding: 20px 14px; }
+    .score { font-size: 74px; line-height: 1; font-weight: 800; }
+    .grade { font-size: 24px; margin-top: 8px; color: #c7d9ff; }
+    .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+    .card, .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .card span { color: var(--muted); font-size: 13px; display: block; min-height: 40px; }
+    .card strong { font-size: 26px; display: block; margin: 7px 0; }
+    .bar { height: 8px; background: #e8edf5; border-radius: 99px; overflow: hidden; }
+    .bar i { display: block; height: 100%; background: var(--brand); }
+    .two-col { display: grid; grid-template-columns: 390px 1fr; gap: 18px; margin-bottom: 18px; }
+    .panel { margin-bottom: 18px; }
+    .radar { width: 100%; max-width: 360px; display: block; margin: 0 auto; }
+    .radar text { fill: #344054; font-size: 11px; }
+    .timeline {
+      position: relative;
+      padding: 18px 8px 4px;
+      min-height: 28px;
+      border-top: 2px solid #cbd5e1;
+      margin-bottom: 14px;
+    }
+    .tick {
+      position: absolute;
+      top: -9px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 3px solid white;
+      transform: translateX(-50%);
+      box-shadow: 0 0 0 1px rgba(0,0,0,.12);
+    }
+    .tick.critical { background: var(--critical); }
+    .tick.high { background: var(--high); }
+    .tick.medium { background: var(--medium); }
+    .tick.low { background: var(--low); }
+    .timeline-events {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 8px;
+    }
+    .timeline-event {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--low);
+      border-radius: 8px;
+      background: #fbfcfe;
+      padding: 8px 10px;
+      min-width: 0;
+    }
+    .timeline-event.critical { border-left-color: var(--critical); }
+    .timeline-event.high { border-left-color: var(--high); }
+    .timeline-event.medium { border-left-color: var(--medium); }
+    .timeline-event.low { border-left-color: var(--low); }
+    .timeline-event b {
+      display: block;
+      font-size: 12px;
+      color: var(--brand);
+      margin-bottom: 3px;
+    }
+    .timeline-event span {
+      display: block;
+      font-size: 12px;
+      color: var(--ink);
+      overflow-wrap: anywhere;
+    }
+    .issue-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      align-items: stretch;
+    }
+    .issue {
+      display: grid;
+      grid-template-columns: 1fr;
+      grid-template-rows: auto 1fr;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-left: 6px solid var(--low);
+      border-radius: 8px;
+      background: #fbfcfe;
+    }
+    .issue.critical { border-left-color: var(--critical); }
+    .issue.high { border-left-color: var(--high); }
+    .issue.medium { border-left-color: var(--medium); }
+    .issue.low { border-left-color: var(--low); }
+    .issue img {
+      width: 100%;
+      height: clamp(130px, 14vw, 210px);
+      object-fit: contain;
+      background: #0f172a;
+      border-radius: 6px;
+    }
+    .issue p { margin: 7px 0; }
+    .issue-title { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .pill { display: inline-flex; align-items: center; border-radius: 99px; padding: 2px 8px; color: white; font-size: 12px; line-height: 1.6; }
+    .pill.critical { background: var(--critical); }
+    .pill.high { background: var(--high); }
+    .pill.medium { background: var(--medium); }
+    .pill.low { background: var(--low); }
+    .muted { color: var(--muted); }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .metric { background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+    .metric span { color: var(--muted); display: block; font-size: 12px; }
+    .metric b { font-size: 18px; overflow-wrap: anywhere; }
+    .verdict-panel {
+      margin: 18px 0;
+      background: #101f36;
+      border-color: #315f9d;
+      color: white;
+      box-shadow: 0 16px 38px rgba(16, 31, 54, .22);
+    }
+    .verdict-panel h2 {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: white;
+      font-size: 24px;
+    }
+    .verdict-panel h2::before {
+      content: "结论";
+      display: inline-flex;
+      align-items: center;
+      border-radius: 99px;
+      padding: 3px 10px;
+      background: #e7effa;
+      color: #0f376b;
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 700;
+    }
+    .verdict-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .verdict-item {
+      background: rgba(255, 255, 255, .09);
+      border: 1px solid rgba(255, 255, 255, .18);
+      border-radius: 8px;
+      padding: 12px;
+      min-width: 0;
+    }
+    .verdict-item.primary {
+      grid-column: span 2;
+      background: white;
+      color: #12233c;
+      border-color: white;
+      box-shadow: 0 10px 24px rgba(3, 12, 28, .22);
+    }
+    .verdict-item span { color: #b9c9df; display: block; font-size: 12px; }
+    .verdict-item.primary span { color: #49627f; }
+    .verdict-item b { display: block; margin-top: 4px; font-size: 19px; line-height: 1.25; overflow-wrap: anywhere; }
+    .verdict-item.primary b { font-size: 28px; }
+    .checklist { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    ul { padding-left: 20px; margin: 8px 0 0; }
+    li { margin: 6px 0; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid var(--line); padding: 9px; text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; }
+    @media (max-width: 980px) {
+      main { padding: 18px; }
+      .hero, .two-col { grid-template-columns: 1fr; }
+      .hero-meta, .metrics { grid-template-columns: repeat(2, 1fr); }
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .checklist { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 650px) {
+      h1 { font-size: 24px; }
+      .score { font-size: 58px; }
+      .hero-meta, .metrics, .grid { grid-template-columns: 1fr; }
+      .issue-list, .timeline-events { grid-template-columns: 1fr; }
+      .verdict-item.primary { grid-column: auto; }
+      .issue img { height: clamp(160px, 52vw, 300px); }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <div>
+      <p class="eyebrow">视频后期评分系统 / 后期质检报告</p>
+      <h1>{{ report.video_info.filename }}</h1>
+      <p>{{ report.editorial.status if report.editorial else report.publish_recommendation }} · {{ report.mode }} · {{ report.preset }}</p>
+      {% if report.editorial and report.editorial.criteria %}
+      <p><strong>{% if report.editorial.content %}内容 {{ report.editorial.content.total if report.editorial.content.total is not none else "待核" }}/100 · {% endif %}后期技术 {{ display_score }}/100</strong></p>
+      <p>{{ report.editorial.cover_status }}</p>
+      {% endif %}
+      <p>视频来源　{{ report.video_info.source }}</p>
+      <div class="hero-meta">
+        <div><span>时长</span><b>{{ format_time(report.video_info.duration_seconds) }}</b></div>
+        <div><span>分辨率</span><b>{{ report.video_info.width }}x{{ report.video_info.height }}</b></div>
+        <div><span>帧率</span><b>{{ "%.2f"|format(report.video_info.fps) }} fps</b></div>
+        <div><span>编码</span><b>{{ report.video_info.video_codec }} / {{ report.video_info.audio_codec }}</b></div>
+      </div>
+    </div>
+    <div class="score-box">
+      <div class="score">{{ display_score }}</div>
+      <div class="grade">原始技术等级 {{ report.grade }}</div>
+    </div>
+  </section>
+
+  <section class="panel verdict-panel">
+    <h2>最终建议</h2>
+    <div class="verdict-grid">
+      <div class="verdict-item primary"><span>{{ "后期优化验收" if report.optimization else ("传播审片" if report.editorial else "是否可发布") }}</span><b>{{ report.editorial.status if report.editorial and not report.optimization else report.publish_recommendation }}</b></div>
+      {% if report.optimization %}
+      <div class="verdict-item"><span>验收目标</span><b>{{ report.optimization.target }} / 100，内容拆解另评</b></div>
+      {% elif report.editorial %}
+      <div class="verdict-item"><span>后期技术</span><b>{{ display_score }} / 100</b></div>
+      {% else %}
+      <div class="verdict-item"><span>是否适合投放</span><b>{{ "投放效果待实测" }}</b></div>
+      {% endif %}
+      <div class="verdict-item"><span>是否建议重剪</span><b>{{ "是" if report.module_scores.editing_rhythm < 10 else "否" }}</b></div>
+      <div class="verdict-item"><span>是否建议重调色</span><b>{{ "是" if report.module_scores.color_grading < 14 else "否" }}</b></div>
+      <div class="verdict-item"><span>是否建议重新导出</span><b>{{ "按交付简报核验" if report.technical and report.technical.export_context != "平台发布" else ("是" if report.module_scores.get("export_specs",5) < 4 else "否") }}</b></div>
+    </div>
+  </section>
+
+  {{ editorial_html | safe }}
+  <section class="grid">
+    {% for module in modules %}
+      <div class="card">
+        <span>{{ module.name }}</span>
+        <strong>{{ module.score }}/{{ module.max|int }}</strong>
+        <div class="bar"><i style="width: {{ module.percent }}%"></i></div>
+      </div>
+    {% endfor %}
+  </section>
+
+  <section class="two-col">
+    <div class="panel">
+      <h2>技术模块分布</h2>
+      {{ radar_svg|safe }}
+    </div>
+    <div class="panel">
+      <h2>时间轴问题分布</h2>
+      <div class="timeline">
+        {% for issue in timeline %}
+          {% set pos = (issue.timestamp_start / report.video_info.duration_seconds * 100) if report.video_info.duration_seconds else 0 %}
+          <span class="tick {{ issue.severity }}" style="left: {{ [0, [pos, 100]|min]|max }}%" title="{{ format_time(issue.timestamp_start) }} {{ issue.problem }}"></span>
+        {% endfor %}
+      </div>
+      <div class="timeline-events">
+        {% for issue in timeline[:12] %}
+          <div class="timeline-event {{ issue.severity }}">
+            <b>{{ format_time(issue.timestamp_start) }}</b>
+            <span>{{ issue.problem }}</span>
+          </div>
+        {% endfor %}
+      </div>
+      {% if not timeline %}<p class="muted">没有检测到带时间点的问题。</p>{% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Top 10 问题列表</h2>
+    <div class="issue-list">
+      {% for issue in top_issues %}
+        <article class="issue {{ issue.severity }}">
+          {% if issue.evidence_image %}
+            <img src="{{ asset_path(issue.evidence_image) }}" alt="问题证据截图">
+          {% else %}
+            <div class="metric"><span>证据</span><b>指标证据</b></div>
+          {% endif %}
+          <div>
+            <div class="issue-title">
+              <strong>{{ issue.problem }}</strong>
+              <span class="pill {{ issue.severity }}">{{ issue.severity }}</span>
+              <span class="pill {{ issue.severity }}">{{ issue.priority }}</span>
+            </div>
+            <p>{{ issue.recommendation }}</p>
+            <p class="muted">模块：{{ report.module_names.get(issue.module, issue.module) }} · 时间：{{ format_time(issue.timestamp_start) }} · 扣分：{{ issue.score_impact }}</p>
+            <p class="muted">指标：{{ format_metric_value(issue.metric_value) }} · 阈值：{{ issue.threshold }}</p>
+          </div>
+        </article>
+      {% else %}
+        <p>未发现明显扣分项。</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>关键帧证据区</h2>
+    <div class="issue-list">
+      {% for frame in report.keyframes[:8] %}
+        <article class="issue low">
+          <img src="{{ asset_path(frame.path) }}" alt="关键帧">
+          <div>
+            <strong>{{ frame.timestamp_label }}</strong>
+            <p class="muted">关键指标：{{ format_metrics(frame.metrics) }}</p>
+          </div>
+        </article>
+      {% else %}
+        <p class="muted">没有关键帧。mock 报告和真实视频抽帧后会显示证据截图。</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>音频分析区</h2>
+    <div class="metrics">
+      <div class="metric"><span>近似响度</span><b>{{ (report.audio_metrics.approx_loudness_db ~ " dB") if report.audio_metrics.approx_loudness_db is not none else "无可测数值" }}</b></div>
+      <div class="metric"><span>峰值</span><b>{{ (report.audio_metrics.peak_db ~ " dB") if report.audio_metrics.peak_db is not none else "无可测数值" }}</b></div>
+      <div class="metric"><span>静音段</span><b>{{ report.audio_metrics.silence_segments|length }}</b></div>
+      <div class="metric"><span>爆音风险</span><b>{{ "是" if report.audio_metrics.clipping_risk else "否" }}</b></div>
+    </div>
+    <ul>
+      {% for item in report.audio_metrics.recommendations %}
+        <li>{{ item }}</li>
+      {% else %}
+        <li>未检测到明显音频风险。</li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="panel">
+    <h2>导出规范区</h2>
+    <table>
+      <tr><th>项目</th><th>当前参数</th><th>建议</th></tr>
+      <tr><td>分辨率</td><td>{{ report.video_info.width }}x{{ report.video_info.height }}</td><td>按目标版位或交付简报的尺寸验收。</td></tr>
+      <tr><td>帧率</td><td>{{ "%.2f"|format(report.video_info.fps) }} fps</td><td>按平台选择 24/25/30/50/60 fps。</td></tr>
+      <tr><td>码率</td><td>{{ report.video_info.bitrate }}</td><td>避免过低码率造成压缩痕迹。</td></tr>
+      <tr><td>音频采样率</td><td>{{ report.video_info.audio_sample_rate }}</td><td>按约定音轨和采样率验收。</td></tr>
+    </table>
+    <ul>
+      {% for item in report.export_recommendations %}
+        <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="panel">
+    <h2>修改优先级清单</h2>
+    <div class="checklist">
+      {% for priority, items in report.revision_checklist.items() %}
+        <div>
+          <h3>{{ priority }}</h3>
+          <ul>
+            {% for item in items %}
+              <li>{{ item }}</li>
+            {% else %}
+              <li class="muted">暂无</li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+</main>
+</body>
+</html>

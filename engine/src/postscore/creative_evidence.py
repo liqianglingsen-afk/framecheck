@@ -122,7 +122,7 @@ class Criteria(Form):
 
     @model_validator(mode="after")
     def validate_assessment(self):
-        hook_score(self.hook, self.payoff)
+        self.validate_hook()
         if (
             self.cover_source.displayed == "独立封面"
             and self.cover_source.independent != "有独立封面"
@@ -138,9 +138,15 @@ class Criteria(Form):
             a.picture in {"删除", "替换"} and a.loss == "保留价值" for a in self.assets
         ):
             raise ValueError("删除或替换价值镜头须写明取舍")
-        if self.hook_total < 14:
+        if self.needs_openings():
             self.require_choices(self.openings, "开场")
         return self
+
+    def validate_hook(self):
+        hook_score(self.hook, self.payoff)
+
+    def needs_openings(self):
+        return self.hook_total < 14
 
     @property
     def hook_total(self):
@@ -151,7 +157,7 @@ class Criteria(Form):
         if len({r.motive.strip() for r in rows}) < 2:
             raise ValueError(name + "须提供至少两种不同的观看动机")
 
-    def covers(self, entries, target):
+    def covers(self, entries, target, *, design_relevant=True, current=False):
         roles = {c["name"]: c["role"] for c in entries}
         if len(roles) != len(entries) or set(self.previews) != set(roles):
             raise ValueError("每个封面对象须逐一对应来源、缩略尺寸和识别判断")
@@ -180,9 +186,15 @@ class Criteria(Form):
                 "须修": "淘汰",
                 "待核": "待核",
             }[c["gate"]]
+            if current and c["gate"] == "已核" and any(c["marks"][k]["score"] <= 2 for k in ("受众场景","点击收益","真实证据","正文兑现","裁切可读")):
+                c["decision"] = "需优化"
             if c["role"] in primary_roles:
-                weak |= c["total"] < target or c["gate"] != "已核"
-        if weak:
+                weak |= c["decision"] != "可用"
+        if current and self.cover_plans:
+            layouts = {(p.source_frame,p.headline,p.crop,p.focus,p.placement) for p in self.cover_plans}
+            if len(layouts) < 2:
+                raise ValueError("两套封面须体现实际图文设计差异")
+        if (weak or design_relevant == "commission") and design_relevant:
             self.require_choices(self.cover_plans, "封面")
         return {
             "无独立封面": "无独立封面 · N/A",
