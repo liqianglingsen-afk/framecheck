@@ -209,3 +209,9 @@ python -m postscore review --mock --html --json
 ## 短视频优化目标
 
 `postscore review clip.mp4 --preset short_social --html --json` 默认以 85/100 验收当前文件的后期技术质量。单条与批量均可用 `--optimization-target 90` 提高目标，或在电商、品牌预设上启用短视频验收。HTML、JSON 和命令行会区分达标、未达标、示例与待核。用相同预设和抽样参数复评导出文件；配套 Skill 提供剪辑清单和条件性补拍方案。
+
+## 传播、创意和封面复核（0.3.0）
+
+`postscore brief source.mp4 --output notes.json` 创建绑定成片指纹的审片底稿。Codex 或编辑依据真实素材填写后，运行 `postscore review source.mp4 --preset short_social --editorial notes.json --html --json`。技术分继续沿用旧预设，内容分采用十项直接相加的新百分制，封面按传播与美学各 50 分单列。只运行技术检测时传播状态为待核。批量使用 `--editorial-dir`，按每份导出 SHA256.json 匹配。指标导入、字段格式和编辑规则见[完整审片操作约定](https://github.com/liqianglingsen-afk/creator-video-ops/blob/main/skills/short-video-forensic-teardown/references/editorial-review.md)。
+
+`postscore calibrate cases.csv --output comparison.json` 对照两位独立评审与实际报告前三项。清单列为 case,type,report,first_a,first_b,score_a,score_b；报告路径相对清单，首项用复核后对齐的同义问题名称。输出逐片记录首选是否一致、共识是否进入前三及评分分差。建议用带货、教程、品牌、剧情的独立样本，保留分歧和留出样本，发布后台数据另判。

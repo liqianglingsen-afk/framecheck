@@ -237,7 +237,7 @@
     <div>
       <p class="eyebrow">视频后期评分系统 / 后期质检报告</p>
       <h1>{{ report.video_info.filename }}</h1>
-      <p>{{ report.publish_recommendation }} · {{ report.mode }} · {{ report.preset }}</p>
+      <p>{{ report.editorial.status if report.editorial else report.publish_recommendation }} · {{ report.mode }} · {{ report.preset }}</p>
       <div class="hero-meta">
         <div><span>时长</span><b>{{ format_time(report.video_info.duration_seconds) }}</b></div>
         <div><span>分辨率</span><b>{{ report.video_info.width }}x{{ report.video_info.height }}</b></div>
@@ -247,16 +247,18 @@
     </div>
     <div class="score-box">
       <div class="score">{{ report.overall_score }}</div>
-      <div class="grade">等级 {{ report.grade }}</div>
+      <div class="grade">后期技术 · 等级 {{ report.grade }}</div>
     </div>
   </section>
 
   <section class="panel verdict-panel">
     <h2>最终建议</h2>
     <div class="verdict-grid">
-      <div class="verdict-item primary"><span>{{ "后期优化验收" if report.optimization else "是否可发布" }}</span><b>{{ report.publish_recommendation }}</b></div>
+      <div class="verdict-item primary"><span>{{ "后期优化验收" if report.optimization else ("传播审片" if report.editorial else "是否可发布") }}</span><b>{{ report.editorial.status if report.editorial and not report.optimization else report.publish_recommendation }}</b></div>
       {% if report.optimization %}
       <div class="verdict-item"><span>验收目标</span><b>{{ report.optimization.target }} / 100，内容拆解另评</b></div>
+      {% elif report.editorial %}
+      <div class="verdict-item"><span>后期技术</span><b>{{ report.overall_score }} / 100</b></div>
       {% else %}
       <div class="verdict-item"><span>是否适合投放</span><b>{{ "适合投放" if report.overall_score >= 85 else "建议优化后再投放" }}</b></div>
       {% endif %}
@@ -266,6 +268,7 @@
     </div>
   </section>
 
+  {{ editorial_html | safe }}
   <section class="grid">
     {% for module in modules %}
       <div class="card">

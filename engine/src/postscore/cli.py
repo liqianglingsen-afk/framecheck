@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import html
+import json
 import sys
 import time
 import urllib.parse
@@ -14,6 +15,7 @@ from typing import Sequence
 from .ai_review import optional_ai_review
 from .audio_metrics import analyze_audio_quality
 from .color_metrics import analyze_color_grading
+from .editorial import calibration, blank_notes, digest, evaluate, pending_review
 from .edit_metrics import analyze_editing_rhythm
 from .frame_sampler import sample_frames
 from .ingest import VIDEO_EXTENSIONS, is_url, resolve_input
@@ -77,6 +79,14 @@ def build_parser() -> argparse.ArgumentParser:
     for command in (review, batch):
         command.add_argument("--optimization-target", type=int, choices=range(MINIMUM_OPTIMIZATION_SCORE, 101),
                              metavar="85..100", help="短视频后期验收目标；short_social 默认 85，其他预设可显式启用")
+    review.add_argument("--editorial", type=Path, help="本次导出的编辑审片 JSON")
+    batch.add_argument("--editorial-dir", type=Path, help="以成片 SHA256.json 命名的审片文件目录")
+    calibrate = subparsers.add_parser("calibrate", help="比较两位独立评审首选及报告前三项")
+    calibrate.add_argument("manifest", type=Path)
+    calibrate.add_argument("--output", required=True, type=Path)
+    brief = subparsers.add_parser("brief", help="为当前文件生成可编辑的传播审片输入")
+    brief.add_argument("source", type=Path)
+    brief.add_argument("--output", required=True, type=Path)
     return parser
 
 
@@ -87,6 +97,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stderr.reconfigure(encoding="utf-8")
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command in {"brief", "calibrate"}:
+        try:
+            data = blank_notes(args.source) if args.command == "brief" else calibration(args.manifest)
+            with args.output.open("x", encoding="utf-8") as stream:
+                json.dump(data, stream, ensure_ascii=False, indent=2)
+            return 0
+        except (OSError, ValueError, KeyError, TypeError, ArithmeticError) as exc:
+            print_console(str(exc))
+            return 2
     if args.command == "review":
         return run_review(args)
     if args.command == "batch":
@@ -106,6 +125,7 @@ def run_review(args: argparse.Namespace) -> int:
             if not args.source:
                 raise RuntimeError("请提供本地视频路径或可下载公开视频链接；示例：python -m postscore review \"video.mp4\" --html")
             report = _analyze_video(args, output_dir)
+        attach_editorial(args, report)
         paths = write_reports(report, output_dir, write_html=write_html, write_json=write_json)
         _print_summary(report, paths)
         if args.open and "html" in paths:
@@ -118,7 +138,7 @@ def run_review(args: argparse.Namespace) -> int:
 
 def run_batch(args: argparse.Namespace) -> int:
     output_dir = ensure_dir(Path(args.output_dir) if args.output_dir else package_root() / "reports")
-    batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    batch_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     write_html = True
     write_json = True
     targets = _expand_batch_sources(args.sources, recursive=args.recursive)
@@ -149,6 +169,7 @@ def run_batch(args: argparse.Namespace) -> int:
                 item_args = argparse.Namespace(**vars(args))
                 item_args.source = target.source
                 report = _analyze_video(item_args, output_dir)
+            attach_editorial(args, report)
             paths = write_reports(
                 report,
                 output_dir,
@@ -171,6 +192,28 @@ def run_batch(args: argparse.Namespace) -> int:
     return 0 if all(row["status"] == "success" for row in results) else 1
 
 
+def attach_editorial(args, report) -> None:
+    notes = getattr(args, "editorial", None)
+    directory = getattr(args, "editorial_dir", None)
+    source = Path(report.video_info.resolved_path)
+    if directory is not None and not directory.is_dir():
+        raise ValueError("找不到批量审片目录")
+    if directory is not None and not args.mock:
+        candidate = directory / (digest(source) + ".json")
+        notes = candidate if candidate.is_file() else None
+    if notes is not None and args.mock:
+        raise ValueError("模拟技术报告不能附入真实成片审片证据")
+    if notes is not None:
+        target = report.optimization.target if report.optimization else 85
+        report.editorial = evaluate(notes, source, report.issues, target)
+    else:
+        report.editorial = pending_review()
+    technical = report.optimization.verdict if report.optimization else f"后期技术 {report.overall_score:g}/100"
+    if args.mock and not report.optimization:
+        technical = "技术示例数据"
+    report.publish_recommendation = technical + " · " + report.editorial["status"]
+
+
 def _analyze_video(args: argparse.Namespace, output_dir: Path):
     requested_sample_fps = args.sample_fps if args.sample_fps is not None else DEFAULT_SAMPLE_FPS
     max_ai_frames = args.max_ai_frames if args.max_ai_frames is not None else DEFAULT_MAX_AI_FRAMES
@@ -181,7 +224,7 @@ def _analyze_video(args: argparse.Namespace, output_dir: Path):
         video_info.duration_seconds,
         args.max_sampled_frames,
     )
-    run_id = f"{safe_slug(video_info.filename)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    run_id = f"{safe_slug(video_info.filename)}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
     frame_dir = output_dir / "assets" / "keyframes" / run_id
     keyframes = sample_frames(video_path, frame_dir, sample_fps=sample_fps, scale_width=args.frame_width)
     visual = analyze_visual_quality(keyframes)
@@ -275,6 +318,8 @@ def _batch_success_row(index: int, target: BatchTarget, report, paths: dict[str,
         "optimization_target": optimization.target if optimization else "",
         "optimization_gap": optimization.gap if optimization else "",
         "optimization_status": optimization.status if optimization else "",
+        "editorial_status": report.editorial["status"] if report.editorial else "",
+        "editorial_priority": " | ".join(i["topic"] for i in report.editorial["priorities"]) if report.editorial else "",
         "duration": report.video_info.duration_seconds,
         "resolution": f"{report.video_info.width}x{report.video_info.height}",
         "fps": round(report.video_info.fps, 2),
@@ -330,6 +375,8 @@ def _write_batch_outputs(results: list[dict[str, object]], output_dir: Path, bat
         "optimization_target",
         "optimization_gap",
         "optimization_status",
+        "editorial_status",
+        "editorial_priority",
         "duration",
         "resolution",
         "fps",
@@ -410,8 +457,12 @@ def _render_batch_row(row: dict[str, object], output_dir: Path) -> str:
     if row.get("optimization_target"):
         verdict = html.escape(str(row["recommendation"]))
         target_detail = f'<div class="muted">目标 {row["optimization_target"]} 分 · {verdict}</div>'
+    if row.get("editorial_status"):
+        target_detail += '<div class="muted">' + html.escape(str(row["editorial_status"])) + '</div>'
     grade = html.escape(str(row["grade"]))
     issues = html.escape(str(row["top_issues"] or row["error"]))
+    if row.get("editorial_priority"):
+        issues = html.escape(str(row["editorial_priority"])) + "<br>" + issues
     return f"""<tr>
   <td data-label="#">{row["index"]}</td>
   <td data-label="状态"><span class="status {status}">{html.escape(status)}</span></td>
@@ -452,7 +503,8 @@ def _print_batch_summary(results: list[dict[str, object]], paths: dict[str, Path
     for row in results:
         if row["status"] == "success":
             detail = f" · {row['recommendation']}" if row.get("optimization_target") else ""
-            lines.append(f"{row['index']}. {row['display_name']}：{row['score']} / {row['grade']}{detail} - {row['top_issues']}")
+            editorial = " · ".join(str(row[k]) for k in ("editorial_status", "editorial_priority") if row.get(k))
+            lines.append(f"{row['index']}. {row['display_name']}：{row['score']} / {row['grade']}{detail} · {editorial} - {row['top_issues']}")
         else:
             lines.append(f"{row['index']}. {row['display_name']}：失败 - {row['error']}")
     if "html" in paths:
@@ -499,6 +551,9 @@ def _print_summary(report, paths: dict[str, Path]) -> None:
         f"总分：{report.overall_score}",
         f"等级：{report.grade}",
     ]
+    if report.editorial:
+        lines.append("传播审片：" + report.editorial["status"])
+        lines.extend(i["topic"] for i in report.editorial["priorities"])
     if report.optimization:
         lines.append(f"后期优化目标 {report.optimization.target} 分 · {report.optimization.verdict}")
     lines.append("Top 5 问题：")

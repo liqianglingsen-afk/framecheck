@@ -4,6 +4,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from .editorial import pending_review
 from .models import AudioMetrics, Issue, Keyframe, OptimizationCheck, ReviewReport, VideoInfo
 from .utils import seconds_to_label
 
@@ -118,10 +119,11 @@ def score_report(
 
     return ReviewReport(
         optimization=optimization,
+        editorial=pending_review(),
         video_info=video_info,
         overall_score=overall,
         grade=grade_for_score(overall),
-        publish_recommendation=optimization.verdict if optimization else publish_recommendation(overall),
+        publish_recommendation=(optimization.verdict if optimization else f"后期技术 {overall:g}/100") + " · 传播待核",
         module_scores=module_scores,
         module_score_max=module_max,
         module_names=module_names,

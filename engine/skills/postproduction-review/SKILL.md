@@ -43,6 +43,12 @@ description: Use when the user asks for local video post-production scoring, bat
 
 只有确认现有素材不足，或试剪反馈说明剩余差距靠剪辑无法解决时，才提出新增、重做或重拍。列出剩余扣分、已查素材和尝试、缺失证据、最少补几镜、每镜动作/台词/景别/秒数、接在哪个切点以及怎样验收。原片已过线时优先保留有效镜头。
 
+## 传播评分与修改排序 · v0.3.0
+
+短视频评分、拆解及优化共用[传播与美学审片约定](https://github.com/liqianglingsen-afk/creator-video-ops/blob/main/skills/short-video-forensic-teardown/references/editorial-review.md)。先核目标受众、入口、前三秒承诺及兑现、结尾收益与真实承接，检查哪些镜头必须保留。按事实问题、目标瓶颈、证据和成本选 1–3 项。前台分别显示十维内容分、后期技术分、封面双轴分和发布前问题。按委托制作首选与挑战剪法或封面，复核手机预览与实际导出。单纯评分保留原片。
+
+使用 Framecheck 0.3+ 的 `postscore brief` 创建底稿并由 Codex 依据实际审片填写，再用 `review --editorial` 或 `batch --editorial-dir` 生成报告。初次裸跑技术检查时传播判断待核。纯技术任务可直接交付；用户问传播/转化或综合评分时继续完成可验证的创意审片，包含内容百分制及封面证据。缺真实发布封面或转化组件时写待核，按当前素材提出候选。需要成交、关注或回访数据时用可选的 metrics_csv 导入。
+
 ## 默认命令
 
 ```bash

@@ -67,6 +67,7 @@ class OptimizationCheck(BaseModel):
 
 
 class ReviewReport(BaseModel):
+    editorial: dict[str, Any] | None = None
     optimization: OptimizationCheck | None = None
     video_info: VideoInfo
     overall_score: float

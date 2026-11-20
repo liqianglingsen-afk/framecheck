@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import AudioMetrics, Issue, Keyframe, ReviewReport, VideoInfo, model_to_dict
+from .editorial import render_editorial
 from .scoring import MODULES, score_report
 from .utils import ensure_dir, package_root, safe_slug, seconds_to_label
 
@@ -52,7 +53,7 @@ def write_reports(
 ) -> dict[str, Path]:
     """Write HTML and JSON report files and return their paths."""
     ensure_dir(output_dir)
-    stem = f"{safe_slug(report.video_info.filename)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    stem = f"{safe_slug(report.video_info.filename)}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
     if stem_prefix:
         stem = f"{safe_slug(stem_prefix)}_{stem}"
     paths: dict[str, Path] = {}
@@ -72,6 +73,7 @@ def render_html(report: ReviewReport, output_dir: Path | None = None) -> str:
     output_dir = output_dir or Path.cwd()
     context = {
         "report": report,
+        "editorial_html": render_editorial(report.editorial, output_dir) if report.editorial else "",
         "modules": _module_cards(report),
         "top_issues": report.issues[:10],
         "radar_svg": _radar_svg(report),
@@ -83,11 +85,11 @@ def render_html(report: ReviewReport, output_dir: Path | None = None) -> str:
     }
     template_path = package_root() / "templates" / "report.html.j2"
     try:
-        from jinja2 import Environment, FileSystemLoader, select_autoescape
+        from jinja2 import Environment, FileSystemLoader
 
         env = Environment(
             loader=FileSystemLoader(str(template_path.parent)),
-            autoescape=select_autoescape(["html", "xml"]),
+            autoescape=True,
         )
         return env.get_template(template_path.name).render(**context)
     except Exception:
@@ -305,6 +307,8 @@ def _fallback_html(report: ReviewReport, context: dict[str, Any]) -> str:
     ]
     if report.optimization:
         verdict_items[1] = ("验收目标", f"{report.optimization.target} / 100，内容拆解另评")
+    if report.editorial and not report.optimization:
+        verdict_items[:2] = [("传播审片", report.editorial["status"]), ("后期技术", f"{report.overall_score} / 100")]
     verdict_html = "".join(
         "<div class='verdict-item{primary}'><span>{label}</span><b>{value}</b></div>".format(
             primary=" primary" if idx == 0 else "",
@@ -320,8 +324,9 @@ def _fallback_html(report: ReviewReport, context: dict[str, Any]) -> str:
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>视频后期评分报告</title>{_fallback_css()}</head>
 <body><main>
-<section class="hero"><div><p>视频后期评分系统</p><h1>{html.escape(report.video_info.filename)}</h1><p>{html.escape(report.publish_recommendation)}</p></div><div class="score">{report.overall_score}<small>{report.grade}</small></div></section>
+<section class="hero"><div><p>视频后期评分系统</p><h1>{html.escape(report.video_info.filename)}</h1><p>{html.escape(report.editorial["status"] if report.editorial else report.publish_recommendation)}</p></div><div class="score">{report.overall_score}<small>{report.grade}</small></div></section>
 <section class="panel verdict-panel"><h2>最终建议</h2><div class="verdict-grid">{verdict_html}</div></section>
+{context["editorial_html"]}
 <section class="grid">{module_cards}</section>
 <section class="panel"><h2>分项雷达图</h2>{context["radar_svg"]}</section>
 <section class="panel"><h2>时间轴问题分布</h2><div class="timeline">{timeline}</div><div class="timeline-events">{timeline_cards}</div></section>
