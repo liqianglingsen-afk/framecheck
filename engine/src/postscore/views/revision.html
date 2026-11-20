@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ d.source_file }} · {{ "原改对照复评" if d.kind=="comparison" else "全片修改方案" }}</title>
+<style>
+*{box-sizing:border-box}body{background:#f6f5ef;color:#242b27;margin:0;font:16px/1.65 system-ui,sans-serif}
+main{max-width:1060px;margin:auto;padding:32px 20px}h1,h2{color:#214a3d;line-height:1.25}h1{font-size:clamp(26px,5vw,42px)}
+section{border-top:1px solid #cdd3ca;margin-top:24px}table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:7px;text-align:left;border-bottom:1px solid #d7dad2;vertical-align:top}th{background:#e5eae0}
+.scroll{overflow:auto}td{min-width:54px}.wide td:last-child{min-width:180px}p,li,code{overflow-wrap:anywhere}.status{background:#e1e8db;padding:12px;font-weight:650}.evidence{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px}.evidence img{max-width:100%;height:auto}figure{margin:8px 0}figcaption,small{color:#4c5c53}summary{cursor:pointer}a{color:#215c48}
+</style></head><body><main data-revision="{{ d.kind }}" data-plan-seal="{{ d.seal }}" data-record-sha256="{{ record_hash }}">
+{% set paired=d.kind=="comparison" %}{% set p=d.plan %}{% set before=d.baseline.content %}
+<h1>{{ "原改对照复评" if paired else "全片修改方案" }}</h1>
+<p>{{ d.source_file }}{% if paired %} → {{ d.revised_file }}{% endif %} · {{ p.goal }}</p>
+<p class="status">原片内容 {{ before.total }}/100　目标 {{ p.target }}　{% if d.totals %}剪前预计 {{ d.totals.expected }}（{{ d.totals.low }}–{{ d.totals.high }}）{% else %}历史回放，剪前预测缺失{% endif %}{% if paired %}　改版内容 {{ d.after.content.total }}/100　{{ d.status }}{% endif %}</p>
+{% if paired %}
+<p>后期技术 {{ d.baseline.technical }} → {{ d.after.technical }} · {{ "同预设、同抽样配置" if d.technical_comparable else "可比性待核" }}。编辑评分来源为随成片提交的十维报告。复核方式为{{ d.review_mode }}，复核者为 {{ d.reviewer }}。</p>
+{% if d.blind %}<p><b>独立盲审 {{ d.blind.result.total }}/100</b>，与制作者评分分别保留。</p>{% endif %}
+{% for label,items in [("须改",d.fixes),("待核",d.pending)] %}{% if items %}<h3>{{ label }}</h3><ul>{% for x in items %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}{% endfor %}
+{% endif %}
+<p>{% for name,url in d.links.items() %}<a href="{{ url }}">{{ name }}</a>　{% endfor %}<a href="{{ d.kind }}.json">结构化数据</a></p>
+<section><h2>十维内容评分与预测</h2><div class="scroll"><table class="wide"><thead><tr><th>维度</th><th>满分</th><th>原片</th><th>预计与区间</th>{% if paired %}<th>改后</th><th>变化</th><th>相对预测</th>{% if d.blind %}<th>盲审</th>{% endif %}{% endif %}<th>依据与条件</th></tr></thead><tbody>
+{% for k,w in weights.items() %}{% set f=p.forecast.get(k) %}<tr data-revision-dimension="{{ k }}"><td>{{ k }}</td><td>{{ w }}</td><td>{{ before.marks[k].score }}</td><td>{{ f.expected ~ '（' ~ f.low ~ '–' ~ f.high ~ '）' if f else '未存' }}</td>{% if paired %}<td>{{ d.after.content.marks[k].score }}</td><td>{{ delta(d.after.content.marks[k].score,before.marks[k].score) }}</td><td>{{ delta(d.after.content.marks[k].score,f.expected) if f and d.prediction_verified else '待核' }}</td>{% if d.blind %}<td>{{ d.blind.result.marks[k].score }}</td>{% endif %}{% endif %}<td>原片 · {{ before.marks[k].evidence }}{% if f %}<br>预测 · {{ f.basis }}（信心{{ f.confidence }}）{% endif %}{% if paired %}<br>改片 · {{ d.after.content.marks[k].evidence }}{% if d.blind %}<br>盲审 · {{ d.blind.result.marks[k].evidence }}{% endif %}{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+<p>{{ p.strategy }}。达不到目标时，{{ p.next_if_short }}。</p>{% if paired %}<p>实际时间线 · {{ d.timeline_check.status }} · {{ d.timeline_check.evidence }}</p><p>偏差与取舍 · {{ d.variance }}</p>{% endif %}</section>
+<section><h2>全片剪辑单</h2><div class="scroll"><table><thead><tr><th>原片秒数</th><th>处理</th><th>成片秒数</th><th>画面</th><th>声音</th><th>字幕包装</th><th>理由及验收</th></tr></thead><tbody>
+{% for s in p.timeline %}<tr><td>{{ s.source.start }}–{{ s.source.end }}</td><td>{{ s.action }}</td><td>{% for t in s.destinations %}{{ t.start }}–{{ t.end }} {% else %}删除{% endfor %}</td><td>{{ s.picture }}</td><td>{{ s.sound }}</td><td>{{ s.graphics }}</td><td>{{ s.reason }}<br>{{ s.acceptance }}</td></tr>{% endfor %}</tbody></table></div></section>
+{% if p.packaging_plan or p.placement_plan %}<section><h2>剪前包装与版位设计</h2>{% for k,v in p.packaging_plan.items() %}<p><b>{{ k }}</b> · {{ v }}</p>{% endfor %}
+{% for s in p.placement_plan %}<h3>{{ s.platform }} · {{ s.placement }} · {{ s.ui_state }}</h3><p>参考 · {{ s.reference }}</p><p>排版 · {{ s.layout }}</p><p>验收 · {{ s.acceptance }}</p>{% endfor %}</section>{% endif %}
+<section><h2>保留镜头、字幕与声音</h2>{% for a in p.protect %}<p><b>{{ a.name }}</b> · {{ a.source.start }}–{{ a.source.end }} 秒 · {{ a.value }} · {{ a.handling }}</p>{% else %}<p>{{ p.no_assets_reason }}</p>{% endfor %}
+{% if paired %}{% for a in d.assets %}<h3>{{ a.name }} · {{ a.status }}</h3><p>{{ a.evidence }}　{{ a.tradeoff }}　{{ a.motion_note }}</p><div class="evidence"><figure><img src="{{ a.before_image }}" alt="原片三帧"><figcaption>原片 {{ a.source.start }}–{{ a.source.end }} 秒</figcaption></figure>{% if a.after_image %}<figure><img src="{{ a.after_image }}" alt="改片三帧"><figcaption>改版 {{ a.output.start }}–{{ a.output.end }} 秒</figcaption></figure>{% endif %}</div>{% endfor %}{% endif %}</section>
+{% if paired %}
+<section><h2>包装与版位安全区</h2>{% for k,v in d.packaging.items() %}<p><b>{{ k }} · {{ v.status }}</b>　{{ v.evidence }}</p>{% endfor %}
+{% for s in d.placements %}<h3>{{ s.platform }} · {{ s.placement }} · {{ s.ui_state }} · {{ s.status }}</h3><p>{{ s.source }} · {{ s.reference_date }} · <a href="{{ s.reference_image }}">参考图</a></p>
+{% for h in s.hits %}<p>{{ h.element }} 与 {{ h.zone }} 首次相交于 {{ "%.3f"|format(h.time) }} 秒。{{ h.fix }}。</p>{% endfor %}
+<div class="evidence">{% for im in s.previews %}<figure><img src="{{ im.image }}" alt="版位校样"><figcaption>{{ im.element }} · {{ "%.3f"|format(im.time) }} 秒，红框为参考 UI，黄框为内容 · <a href="{{ im.clean }}">干净帧</a></figcaption></figure>{% endfor %}</div>
+{% else %}<p>缺目标版位实证，见待核项。</p>{% endfor %}</section>
+<section><h2>技术、封面与平台行为</h2><p>原片 {{ d.baseline.preset }}/{{ d.baseline.mode }}；改版 {{ d.after.preset }}/{{ d.after.mode }}。</p><div class="scroll"><table><tr><th>技术模块</th><th>原片</th><th>改版</th></tr>{% for k,v in d.baseline.modules.items() %}<tr><td>{{ d.baseline.module_names.get(k,k) }}</td><td>{{ v }}</td><td>{{ d.after.modules.get(k,"待核") }}</td></tr>{% endfor %}</table></div>
+{% for label,side in [("原片",d.baseline),("改版",d.after)] %}<p>{{ label }} · {{ side.cover_status }}{% for c in side.covers %}　{{ c.role }} {{ c.name }} {{ c.total }}/100（{{ c.axes }}）{% endfor %}</p>{% for m in side.metrics %}<p>{{ m.variant }} · {{ m.traffic }} · {{ m.window }} · {{ m.metric }}　{{ m.numerator }}/{{ m.denominator }}</p>{% else %}<p>{{ label }}发布数据待核</p>{% endfor %}{% endfor %}
+<p><b>下一轮</b>　{{ d.next_edit }}</p></section>{% endif %}
+<details><summary>版本及文件核验</summary><p>量表 {{ before.version }} · {{ d.schema_version }}</p><p>原片 <code>{{ p.source_sha256 }}</code></p>{% if paired %}<p>改片 <code>{{ d.revised_sha256 }}</code></p>{% endif %}<p>快照 <code>{{ d.seal }}</code></p></details>
+</main></body></html>

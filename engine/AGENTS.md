@@ -29,6 +29,10 @@
 - 如果用户说抖音、小红书、TikTok、短视频，使用 `short_social`。
 - 如果用户说品牌片、广告片、宣传片，使用 `brand_commercial`。
 
+## 修改及复评
+
+仅评分用下列命令。有修改方案或原改两版时，按评分 Skill 执行 revision-init / revision-plan、导出和两次相同预设的 review，最后用 revision-compare 交付成对 HTML/JSON。预测、改后自评、独立盲审、技术实测与发布状态分别列出。
+
 ## 默认命令
 
 ```bash

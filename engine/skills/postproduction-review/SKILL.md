@@ -7,6 +7,10 @@ description: Use when the user asks for local video post-production scoring, bat
 
 这个 Skill 用于调用 `postscore-ai` 本地 Python CLI，对视频后期处理品质进行评分，并生成中文 HTML/JSON 报告。
 
+## 全片修改与原改复评 · 0.4.0
+
+有修改方案或改片时执行[全片修改与对照约定](https://github.com/liqianglingsen-afk/creator-video-ops/blob/main/skills/short-video-forensic-teardown/references/full-revision.md)。用 revision-plan 记录剪前十维预测及保留资产；revision-render 绑定快照和实际导出；review 对两版评分；revision-compare 是“按方案修改”及原改对照的最终入口。输出成对标准报告、视频及未验项。缺历史预测如实标注。仅单片技术或批量评分仍用原入口。
+
 ## 触发词
 
 - 后期评分

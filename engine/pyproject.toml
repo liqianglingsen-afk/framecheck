@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "postscore-ai"
-version = "0.3.0"
+version = "0.4.0"
 description = "Local video post-production quality scoring and QC report generator."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -31,7 +31,7 @@ postscore = "postscore.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-postscore = ["py.typed"]
+postscore = ["py.typed", "views/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

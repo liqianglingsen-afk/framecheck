@@ -215,3 +215,9 @@ python -m postscore review --mock --html --json
 `postscore brief source.mp4 --output notes.json` 创建绑定成片指纹的审片底稿。Codex 或编辑依据真实素材填写后，运行 `postscore review source.mp4 --preset short_social --editorial notes.json --html --json`。技术分继续沿用旧预设，内容分采用十项直接相加的新百分制，封面按传播与美学各 50 分单列。只运行技术检测时传播状态为待核。批量使用 `--editorial-dir`，按每份导出 SHA256.json 匹配。指标导入、字段格式和编辑规则见[完整审片操作约定](https://github.com/liqianglingsen-afk/creator-video-ops/blob/main/skills/short-video-forensic-teardown/references/editorial-review.md)。
 
 `postscore calibrate cases.csv --output comparison.json` 对照两位独立评审与实际报告前三项。清单列为 case,type,report,first_a,first_b,score_a,score_b；报告路径相对清单，首项用复核后对齐的同义问题名称。输出逐片记录首选是否一致、共识是否进入前三及评分分差。建议用带货、教程、品牌、剧情的独立样本，保留分歧和留出样本，发布后台数据另判。
+
+## 0.4.0 全片剪辑与成对复评
+
+`revision-init` 从绑定原片的内容报告创建底稿；填写逐项预测、完整时间线和保护项后，用 `revision-plan` 封存并导出 HTML/JSON。`revision-render` 调用项目的剪辑命令，生成可解码视频和绑定快照的导出凭据。`revision-audit` 创建验收底稿，`revision-blind` 提供仅含成片、目标与量表的独立评审表。原改两次 `review` 使用相同设置，最后用 `revision-compare` 生成原改十维表、关键帧、包装及逐版位 UI 校样。无预测快照的旧案例按历史回放处理。
+
+[命令、字段及版位示例](https://github.com/liqianglingsen-afk/creator-video-ops/blob/main/skills/short-video-forensic-teardown/references/full-revision.md)。每个命令均支持 `--help`。单片、批量与历史数据入口继续可用。

@@ -67,6 +67,7 @@ class OptimizationCheck(BaseModel):
 
 
 class ReviewReport(BaseModel):
+    sampling: dict[str, Any] | None = None
     editorial: dict[str, Any] | None = None
     optimization: OptimizationCheck | None = None
     video_info: VideoInfo

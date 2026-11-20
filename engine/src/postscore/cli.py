@@ -5,6 +5,8 @@ import csv
 import html
 import json
 import sys
+import subprocess
+from . import __version__
 import time
 import urllib.parse
 from dataclasses import dataclass
@@ -87,6 +89,8 @@ def build_parser() -> argparse.ArgumentParser:
     brief = subparsers.add_parser("brief", help="为当前文件生成可编辑的传播审片输入")
     brief.add_argument("source", type=Path)
     brief.add_argument("--output", required=True, type=Path)
+    from .revision_cli import add_commands
+    add_commands(subparsers)
     return parser
 
 
@@ -97,6 +101,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stderr.reconfigure(encoding="utf-8")
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command and args.command.startswith("revision-"):
+        from .revision_cli import run_command
+        try:
+            run_command(args)
+            return 0
+        except (ValueError, OSError, KeyError, TypeError, ArithmeticError, RuntimeError, subprocess.SubprocessError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     if args.command in {"brief", "calibrate"}:
         try:
             data = blank_notes(args.source) if args.command == "brief" else calibration(args.manifest)
@@ -234,7 +246,7 @@ def _analyze_video(args: argparse.Namespace, output_dir: Path):
              else AudioMetrics(has_audio=False, recommendations=["视频未检测到音轨。"]))
     subtitles = analyze_subtitles_graphics(keyframes)
     optional_ai_review(keyframes, max_frames=max_ai_frames)
-    return score_report(
+    report = score_report(
         video_info=video_info,
         visual_metrics=visual,
         color_metrics=color,
@@ -246,6 +258,9 @@ def _analyze_video(args: argparse.Namespace, output_dir: Path):
         mode=args.mode,
         optimization_target=args.optimization_target,
     )
+    report.sampling = dict(engine=__version__, sample_fps=requested_sample_fps, max_frames=args.max_sampled_frames,
+                           frame_width=args.frame_width, effective_fps=sample_fps)
+    return report
 
 
 def _expand_batch_sources(sources: Sequence[str], recursive: bool = False) -> list[BatchTarget]:
