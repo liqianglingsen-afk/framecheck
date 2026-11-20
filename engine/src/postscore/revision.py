@@ -53,6 +53,7 @@ class Edit(Record):
     picture: Text
     sound: Text
     graphics: Text
+    screen: str = ""
     reason: Text
     acceptance: Text
 
@@ -108,6 +109,13 @@ class Receipt(Record):
     seal: Hash
 
 
+class Dispute(Record):
+    time: Text
+    issue: Text
+    evidence: Text
+    decision: Literal["须修", "待核", "已裁决"]
+
+
 class Audit(Record):
     schema_version: Literal["cut-audit-0.4"]
     plan_sha256: Hash
@@ -118,6 +126,7 @@ class Audit(Record):
     pending_placements: list[Text]
     reviewer: Text
     review_mode: Literal["自评", "独立盲审"]
+    disputes: list[Dispute] = Field(default_factory=list)
     blind_sheet: str = ""
     render_receipt: str = ""
     timeline_check: Check
@@ -171,7 +180,16 @@ def report_summary(report_path, video_hash):
     result = parsed.result(content["target"])
     if any(Decimal(result[k]) != Decimal(str(content[k])) for k in ("raw", "total")):
         raise ValueError("存档内容合计与十维得分不一致")
+    criteria = ed.get("criteria")
+    if ed.get("schema_version") == "editorial-0.5":
+        from .creative_evidence import Criteria, HOOK_DIM
+        current = Criteria.model_validate(criteria)
+        if current.hook_total != parsed.marks[HOOK_DIM].score:
+            raise ValueError("存档钩子与四项不一致")
+        if set(f["topic"] for f in current.findings()) - set(ed.get("blockers", [])):
+            raise ValueError("存档报告缺少发布前错误")
     return dict(
+        criteria=criteria,
         report_sha256=digest(report_path),
         content=result,
         technical=report.overall_score,
@@ -209,6 +227,11 @@ def seal_plan(draft, source, baseline):
         raise ValueError("剪辑单与原片指纹不匹配")
     info = probe_video(source, source=str(source))
     before = report_summary(baseline, sha)
+    if before.get("criteria") and p.forecast_context == "剪前预测":
+        names = {asset.name for asset in p.protect}
+        missing = {asset["name"] for asset in before["criteria"]["assets"]} - names
+        if missing or any(not substantive(row.screen) for row in p.timeline):
+            raise ValueError("剪前须承接逐项保留资产并注明各段屏显处理：" + "、".join(sorted(missing)))
     if p.goal != before["goal"]:
         raise ValueError("方案目标不同于原片审片目标，请按新目标重评原片")
     tolerance = 0.51 / max(info.fps, 1)
@@ -368,6 +391,8 @@ def compare(plan_path, source, revised, report_path, audit_path, out):
             raise ValueError("资产复核缺少证据或取舍说明")
     before = snap["baseline"]
     after = report_summary(report_path, audit.revised_sha256)
+    if before.get("criteria") and not after.get("criteria"):
+        raise ValueError("新版基线须用同版审片依据复评")
     if after["goal"] != plan.goal:
         raise ValueError("两次评分的业务目标不一致")
     if set(audit.packaging) != set(PACKAGING) or set(audit.protected) != {x.name for x in plan.protect}:
@@ -445,11 +470,33 @@ def compare(plan_path, source, revised, report_path, audit_path, out):
         ):
             raise ValueError("独立评分表的成片、目标或评审者不符")
         rating = Creative.model_validate(blind["content"]).result(plan.target)
-        blind = dict(reviewer=audit.reviewer, result=rating)
+        blind_version = blind.get("rubric_version", "历史十维盲审")
+        if after.get("criteria") and blind_version == "editorial-0.5":
+            from .creative_evidence import HOOK_DIM, Mark, hook_score
+            scored = {k: Mark.model_validate(v) for k, v in blind["hook"].items()}
+            if hook_score(scored, blind["payoff"]) != Decimal(rating["marks"][HOOK_DIM]["score"]):
+                raise ValueError("盲审钩子与独立四项不一致")
+        if after.get("criteria") and blind_version != "editorial-0.5":
+            pending.append("历史盲审缺新版四项钩子，仅列原值")
+        blind_findings = [Dispute.model_validate(row) for row in blind.get("observations", [])]
+        for row in blind_findings:
+            if row.decision == "须修":
+                fixes.append("盲审须改 · " + row.time + " · " + row.issue + " · " + row.evidence)
+            elif row.decision == "待核":
+                pending.append("盲审待核 · " + row.time + " · " + row.issue)
+        blind = dict(reviewer=audit.reviewer, result=rating, version=blind_version, observations=[r.model_dump() for r in blind_findings])
         if (Decimal(rating["total"]) >= plan.target) != (actual >= plan.target):
-            pending.append("独立评审与制作自评跨越目标线，须裁决分歧")
+            if not audit.disputes or any(d.decision == "待核" for d in audit.disputes):
+                pending.append("独立评审与制作自评跨越目标线，须按具体镜头裁决分歧")
     elif audit.blind_sheet:
         raise ValueError("自评模式不能附作独立评分")
+    for dispute in audit.disputes:
+        if not all(substantive(x) for x in (dispute.time, dispute.issue, dispute.evidence)):
+            raise ValueError("分歧裁决须有时码、问题及实片证据")
+        if dispute.decision == "须修":
+            fixes.append("裁决须改 · " + dispute.time + " · " + dispute.issue)
+        elif dispute.decision == "待核":
+            pending.append("分歧待核 · " + dispute.time + " · " + dispute.issue)
     info = probe_video(revised, source=str(revised))
     duration = info.duration_seconds
     if abs(duration - snap["planned_duration"]) > 0.51 / max(info.fps, 1):
@@ -520,6 +567,7 @@ def compare(plan_path, source, revised, report_path, audit_path, out):
         assets=assets,
         placements=safety,
         blind=blind,
+        disputes=[d.model_dump() for d in audit.disputes],
         packaging={k: v.model_dump() for k, v in audit.packaging.items()},
         review_mode=audit.review_mode,
         reviewer=audit.reviewer,

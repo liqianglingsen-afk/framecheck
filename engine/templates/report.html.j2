@@ -238,6 +238,10 @@
       <p class="eyebrow">视频后期评分系统 / 后期质检报告</p>
       <h1>{{ report.video_info.filename }}</h1>
       <p>{{ report.editorial.status if report.editorial else report.publish_recommendation }} · {{ report.mode }} · {{ report.preset }}</p>
+      {% if report.editorial and report.editorial.criteria %}
+      <p><strong>{% if report.editorial.content %}内容 {{ report.editorial.content.total }}/100 · {% endif %}后期技术 {{ report.overall_score }}/100</strong></p>
+      <p>{{ report.editorial.cover_status }}</p>
+      {% endif %}
       <div class="hero-meta">
         <div><span>时长</span><b>{{ format_time(report.video_info.duration_seconds) }}</b></div>
         <div><span>分辨率</span><b>{{ report.video_info.width }}x{{ report.video_info.height }}</b></div>

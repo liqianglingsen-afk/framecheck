@@ -111,7 +111,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
     if args.command in {"brief", "calibrate"}:
         try:
-            data = blank_notes(args.source) if args.command == "brief" else calibration(args.manifest)
+            data = blank_notes(args.source, current=True) if args.command == "brief" else calibration(args.manifest)
             with args.output.open("x", encoding="utf-8") as stream:
                 json.dump(data, stream, ensure_ascii=False, indent=2)
             return 0
@@ -218,6 +218,9 @@ def attach_editorial(args, report) -> None:
     if notes is not None:
         target = report.optimization.target if report.optimization else 85
         report.editorial = evaluate(notes, source, report.issues, target)
+        if report.editorial.get("criteria") and report.optimization and report.optimization.status == "below_target":
+            report.editorial["status"] = "发布前须改"
+            report.editorial["blockers"].append(f"后期技术 {report.overall_score:g} 分，低于约定目标 {target}")
     else:
         report.editorial = pending_review()
     technical = report.optimization.verdict if report.optimization else f"后期技术 {report.overall_score:g}/100"

@@ -139,11 +139,16 @@ def run_command(a):
                     picture="",
                     sound="",
                     graphics="",
+                    screen="",
                     reason="",
                     acceptance="",
                 )
             ],
-            protect=[],
+            protect=[
+                dict(name=asset["name"], kind="其他", source=dict(start=None, end=None),
+                     value=asset["value"], handling=asset["source"] + " · " + asset["reason"])
+                for asset in (before.get("criteria") or {}).get("assets", [])
+            ],
             no_assets_reason="",
             packaging_plan={k: "" for k in PACKAGING},
             placement_plan=[
@@ -177,6 +182,7 @@ def run_command(a):
             pending_placements=[],
             reviewer="",
             review_mode="自评",
+            disputes=[],
             blind_sheet="",
             render_receipt="",
             timeline_check=dict(status="待核", evidence="待核"),
@@ -193,6 +199,10 @@ def run_command(a):
                 goal=a.goal,
                 reviewer="",
                 rubric=CREATIVE_WEIGHTS,
+                observations=[],
+                rubric_version="editorial-0.5",
+                hook={k: dict(score=None, evidence="") for k in ("主体与动作", "受众相关", "继续观看理由", "前三秒可信线索")},
+                payoff="",
                 content=dict(
                     version="creative-100-v1",
                     marks={k: dict(score=None, evidence="") for k in CREATIVE_WEIGHTS},

@@ -7,7 +7,11 @@ description: Use when the user asks for local video post-production scoring, bat
 
 这个 Skill 用于调用 `postscore-ai` 本地 Python CLI，对视频后期处理品质进行评分，并生成中文 HTML/JSON 报告。
 
-## 全片修改与原改复评 · 0.4.0
+## 综合审片 · 0.5.0
+
+从 brief 建 editorial-0.5。主任务与辅助切口分别写清；核对独立封面、已证实平台实显、首帧及设计候选，按传播和美学各 50 分；弱封面给两个观看动机。前三秒按主体 4、受众 4、观看理由 5、可信线索 4 逐项给源时码。弱钩子给两个三拍开场。登记亮相、质感、功能及尾镜，逐一注明画面／屏显／字幕／声音的去向。按同机连续实录核复位时间和真实零值。正常播放与静音核对主体关系，错误、擦空或主体误认须在发布前修改。见[填写示例与字段说明](https://github.com/liqianglingsen-afk/creator-video-ops/blob/main/skills/short-video-forensic-teardown/references/creative-evidence.md)。
+
+## 全片修改与原改复评
 
 有修改方案或改片时执行[全片修改与对照约定](https://github.com/liqianglingsen-afk/creator-video-ops/blob/main/skills/short-video-forensic-teardown/references/full-revision.md)。用 revision-plan 记录剪前十维预测及保留资产；revision-render 绑定快照和实际导出；review 对两版评分；revision-compare 是“按方案修改”及原改对照的最终入口。输出成对标准报告、视频及未验项。缺历史预测如实标注。仅单片技术或批量评分仍用原入口。
 

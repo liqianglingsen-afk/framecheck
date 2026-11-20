@@ -1,0 +1,12 @@
+<div data-criteria="0.5">
+<h3>原片任务与展示顺序</h3><p>{{ c.primary_task }} · 辅助切口 {{ c.secondary_angle }} · {{ c.reveal_order }}</p>
+<h3>封面来源与缩略预览</h3><p>{{ review.cover_status }} · {{ c.cover_source.evidence }}</p>
+{% for name,p in c.previews.items() %}<p><b>{{ name }}</b> · {{ p.source }} · {{ p.size }} · 主体{{ p.subject }} · 收益{{ p.benefit }} · {{ p.topic }}</p>{% endfor %}
+{% for d in c.cover_plans %}<p><b>{{ d.headline }}</b> · {{ d.motive }}<br>取帧 {{ d.source_frame }} · 裁切 {{ d.crop }} · 焦点 {{ d.focus }} · 位置 {{ d.placement }}<br>{{ d.rationale }} · 淘汰条件 {{ d.failure }}</p>{% endfor %}
+<h3>前三秒钩子 · 编辑判断</h3>{% for k,w in [('主体与动作',4),('受众相关',4),('继续观看理由',5),('前三秒可信线索',4)] %}<p>{{ k }} {{ c.hook[k].score }}/{{ w }} · {{ c.hook[k].evidence }}</p>{% endfor %}<p>后文兑现 {{ c.payoff }}</p>
+{% for o in c.openings %}<h4>{{ '首选' if loop.first else '备选' }} · {{ o.motive }}</h4>{% for b in o.beats %}<p>{{ loop.index0 }}–{{ loop.index }} 秒 · {{ b.subject }} · {{ b.picture }} · 声音 {{ b.audio }} · 字幕 {{ b.caption }}</p>{% endfor %}<p>下一镜 {{ o.next_shot }}</p>{% endfor %}
+<h3>主体、镜头与屏显核对</h3><p>正常播放 {{ c.identity.sound_on }} · 静音 {{ c.identity.muted }} · {{ c.identity.evidence }} · {{ c.identity.fix }}</p>
+{% for a in c.assets %}<p><b>{{ a.name }}</b> · 源 {{ a.source }} → 成片 {{ a.output }} · {{ a.value }}<br>画面 {{ a.picture }} · 屏显 {{ a.display }} · 包装 {{ a.graphics }} · 声音 {{ a.sound }}<br>{{ a.loss }} · {{ a.reason }}</p>{% else %}<p>{{ c.no_assets_reason }}</p>{% endfor %}
+{% for d in c.displays %}<p>{{ d.time }} · {{ d.action }} · 预期 {{ d.expected }} · 实际 {{ d.observed }} · {{ d.status }}<br>字形依据 {{ d.reference }} · 触发时刻 {{ d.timing }} · {{ d.timing_reference }} · {{ d.fix }}</p>{% else %}<p>{{ c.no_display_reason }}</p>{% endfor %}
+<p>平台行为数据 {{ '见实测记录' if review.metrics else '待核' }}</p>
+</div>

@@ -221,3 +221,7 @@ python -m postscore review --mock --html --json
 `revision-init` 从绑定原片的内容报告创建底稿；填写逐项预测、完整时间线和保护项后，用 `revision-plan` 封存并导出 HTML/JSON。`revision-render` 调用项目的剪辑命令，生成可解码视频和绑定快照的导出凭据。`revision-audit` 创建验收底稿，`revision-blind` 提供仅含成片、目标与量表的独立评审表。原改两次 `review` 使用相同设置，最后用 `revision-compare` 生成原改十维表、关键帧、包装及逐版位 UI 校样。无预测快照的旧案例按历史回放处理。
 
 [命令、字段及版位示例](https://github.com/liqianglingsen-afk/creator-video-ops/blob/main/skills/short-video-forensic-teardown/references/full-revision.md)。每个命令均支持 `--help`。单片、批量与历史数据入口继续可用。
+
+## 0.5.0 编辑依据
+
+`postscore brief` 生成 editorial-0.5。填写 criteria 后，review、batch、revision-plan 和 revision-compare 沿用同一审片依据。HTML 呈现封面来源与缩略图、两种观看动机、四项钩子、逐轨镜头取舍，以及屏显参考与复位时刻。数值代表编辑量表；平台行为单独用指标 CSV。编辑的发布前阻碍优先于总分。单独运行技术检测可省略 --editorial。既有 editorial-0.3 记录继续按原始口径读取。

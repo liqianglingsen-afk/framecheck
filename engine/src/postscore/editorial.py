@@ -12,6 +12,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from .creative_evidence import Criteria, HOOK_DIM, template
+
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 CHECKS = ("入口承诺", "前3秒", "中段兑现", "事实依据", "画面与包装", "收藏分享与品牌", "结尾行动", "行动承接")
 AXES = {
@@ -67,7 +69,7 @@ class Creative(Record):
 
 class Cover(Record):
     name: Text
-    role: Literal["发布封面", "首帧", "候选"]
+    role: Literal["发布封面", "独立封面", "首帧", "候选"]
     image: Text
     integrity: Check
     marks: dict[str, CoverMark]
@@ -88,7 +90,8 @@ class Finding(Record):
 
 
 class ReviewNotes(Record):
-    schema_version: Literal["editorial-0.3"]
+    schema_version: Literal["editorial-0.3", "editorial-0.5"]
+    criteria: Criteria | None = None
     source_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
     audience: Text
     goal: Text
@@ -114,12 +117,15 @@ def digest(path: Path) -> str:
     return h.hexdigest()
 
 
-def blank_notes(source: Path) -> dict:
-    return dict(schema_version=MEDIA_SCHEMA, source_sha256=digest(source), audience="待核", goal="待核",
+def blank_notes(source: Path, *, current=False) -> dict:
+    data = dict(schema_version=MEDIA_SCHEMA, source_sha256=digest(source), audience="待核", goal="待核",
                 entry="待核", bottleneck="待核", checks={k: {"status": "待核", "evidence": "待核"} for k in CHECKS}, keep=[], findings=[],
                 covers=[], content=None, cover_required=False, retain_alerts={},
                 experiment=dict.fromkeys(("变量", "对照", "挑战", "主指标", "护栏", "停止条件"), "待核"),
                 metrics_csv="")
+    if current:
+        data.update(schema_version="editorial-0.5", criteria=template())
+    return data
 
 
 def read_metrics(path: Path, expected_hash: str) -> list[dict]:
@@ -150,6 +156,11 @@ def pending_review():
 
 def evaluate(notes_path: Path, video: Path, issues=(), target: int = 85) -> dict:
     notes = ReviewNotes.model_validate_json(notes_path.read_text(encoding="utf-8"))
+    criteria = notes.criteria
+    if (notes.schema_version == "editorial-0.5") != (criteria is not None):
+        raise ValueError("新版综合审片须完整填写 criteria；历史审片沿用其原版本")
+    if criteria and notes.content and (HOOK_DIM not in notes.content.marks or notes.content.marks[HOOK_DIM].score != criteria.hook_total):
+        raise ValueError("前三秒十维表得分与四项证据合计不一致")
     if notes.source_sha256 != digest(video):
         raise ValueError("审片证据与当前视频指纹不一致，请对本次导出重评")
     if set(notes.checks) != set(CHECKS) or notes.bottleneck not in (*CHECKS, "待核"):
@@ -174,18 +185,21 @@ def evaluate(notes_path: Path, video: Path, issues=(), target: int = 85) -> dict
         gate = "须修" if failed else cover.integrity.status
         entries.append(dict(gate=gate, integrity=cover.integrity.evidence, name=cover.name, role=cover.role, image=str(source), axes=axes, total=sum(axes.values()),
                             marks={k: v.model_dump() for k, v in cover.marks.items()}, correction=cover.correction))
+    cover_origin = criteria.covers(entries, target) if criteria else ""
     actual = [item for item in entries if item["role"] == "发布封面"]
     if len(actual) > 1:
         raise ValueError("每份报告对应一个发布入口的当前封面")
     cover_status = "发布封面待评" if not actual else ("封面达到目标" if actual[0]["total"] >= target else "封面低于目标")
     if actual and actual[0]["gate"] != "已核":
         cover_status = "封面发布前须改" if actual[0]["gate"] == "须修" else "发布封面待核"
+    if criteria:
+        cover_status = cover_origin + " ｜ " + (cover_status if actual else "平台实显待核")
     levels = ("发布前须改", "影响目标", "精修")
     costs = ("现有素材剪辑", "新增包装或配音", "补拍")
     confidence = ("实测", "编辑判断", "待验证")
-    items = [f.model_dump() for f in notes.findings]
+    items = (list(criteria.findings()) if criteria else []) + [f.model_dump() for f in notes.findings]
     for stage, check in notes.checks.items():
-        if check.status == "须修" and not any(f.stage == stage and f.level == levels[0] for f in notes.findings):
+        if check.status == "须修" and not any(f["stage"] == stage and f["level"] == levels[0] for f in items):
             raise ValueError(f"{stage} 判为须修，请补有时码与验收方式的发布前修改项")
     if actual and actual[0]["gate"] == "须修":
         cover = actual[0]
@@ -205,14 +219,14 @@ def evaluate(notes_path: Path, video: Path, issues=(), target: int = 85) -> dict
     unique = {}
     for item in items:
         unique.setdefault(item["topic"], item)
-    blockers = [i["topic"] for i in items if i["level"] == levels[0]]
+    blockers = [i["topic"] for i in unique.values() if i["level"] == levels[0]]
     unknowns = {"待核", "未知", "待定", "未提供"}
     uncertain = (any(x.status == "待核" or x.evidence in unknowns for x in notes.checks.values())
                  or any(v in unknowns for v in (notes.goal, notes.entry, notes.audience, notes.bottleneck)))
     content = notes.content.result(target) if notes.content else None
     cover_pending = notes.cover_required and (not actual or actual[0]["gate"] == "待核")
     status = "发布前须改" if blockers or (content and content["status"] == "低于目标") or (notes.cover_required and actual and actual[0]["total"] < target) else (
-        PENDING if uncertain or cover_pending else "已完成传播审片")
+        PENDING if uncertain or cover_pending or (criteria and criteria.pending()) else "已完成传播审片")
     metrics = read_metrics(notes_path.parent / notes.metrics_csv, notes.source_sha256) if notes.metrics_csv else []
     return notes.model_dump(exclude={"findings", "covers", "content"}) | dict(content=content, status=status, cover_status=cover_status,
         checks={k: v.status + " · " + v.evidence for k,v in notes.checks.items()},
@@ -224,7 +238,7 @@ def render_editorial(review: dict, output_dir: Path | None = None) -> str:
     def e(value):
         return html.escape(str(value), quote=True)
     source_id = e(review.get("source_sha256", ""))
-    lines = [f'<section class="panel" data-editorial="0.3" data-source-sha256="{source_id}"><h2>传播与美学复核</h2>',
+    lines = [f'<section class="panel" data-editorial="{e(review.get('schema_version', MEDIA_SCHEMA).removeprefix('editorial-'))}" data-source-sha256="{source_id}"><h2>传播与美学复核</h2>',
              f'<p><b>{e(review["status"])}</b> · {e(review["cover_status"])}</p>']
     if "goal" in review:
         lines.append(f'<p>{e(review["audience"])} · {e(review["entry"])} · 目标 {e(review["goal"])} · 瓶颈 {e(review["bottleneck"])}</p>')
@@ -242,6 +256,10 @@ def render_editorial(review: dict, output_dir: Path | None = None) -> str:
         lines.append(f'<article><h3>{e(item["level"])} · {e(item["topic"])}</h3><p>{e(item["confidence"])} · {e(item["evidence"])}</p><p>{e(item["cost"])} · {e(item["action"])}</p><p>验收　{e(item["acceptance"])}</p></article>')
     if review["blockers"]:
         lines.append('<p>全部发布前问题　' + e(' / '.join(review["blockers"])) + '</p>')
+    if review.get("criteria"):
+        from jinja2 import Environment, PackageLoader
+        env = Environment(loader=PackageLoader("postscore", "views"), autoescape=True)
+        lines.append(env.get_template("criteria.html").render(c=review["criteria"], review=review))
     for key, value in review["checks"].items():
         lines.append(f'<p><b>{e(key)}</b>　{e(value)}</p>')
     for note in review.get("keep", []):
@@ -249,7 +267,7 @@ def render_editorial(review: dict, output_dir: Path | None = None) -> str:
     for title, reason in review.get("retain_alerts", {}).items():
         lines.append(f'<p>技术告警复核　{e(title)} · {e(reason)}</p>')
     for cover in review["covers"]:
-        lines.append(f'<h3>{e(cover["role"])} · {e(cover["name"])}</h3><p>传播 {cover["axes"]["传播"]}/50 · 美学 {cover["axes"]["美学"]}/50 · 合计 {cover["total"]}/100 · 真实性 {e(cover["gate"])}</p>')
+        lines.append(f'<h3>{e(cover["role"])} · {e(cover["name"])}</h3><p>传播 {cover["axes"]["传播"]}/50 · 美学 {cover["axes"]["美学"]}/50 · 合计 {cover["total"]}/100 · 审查 {e(cover["gate"])} {e(cover.get("decision", ""))}</p>')
         location = Path(cover["image"])
         if output_dir is not None:
             try:
