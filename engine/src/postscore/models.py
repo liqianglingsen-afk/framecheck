@@ -59,7 +59,15 @@ class AudioMetrics(BaseModel):
     recommendations: list[str] = Field(default_factory=list)
 
 
+class OptimizationCheck(BaseModel):
+    target: int
+    gap: float | None
+    status: Literal["below_target", "meets_target", "unverified", "mock"]
+    verdict: str
+
+
 class ReviewReport(BaseModel):
+    optimization: OptimizationCheck | None = None
     video_info: VideoInfo
     overall_score: float
     grade: str

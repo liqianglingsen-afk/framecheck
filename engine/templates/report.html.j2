@@ -254,8 +254,12 @@
   <section class="panel verdict-panel">
     <h2>最终建议</h2>
     <div class="verdict-grid">
-      <div class="verdict-item primary"><span>是否可发布</span><b>{{ report.publish_recommendation }}</b></div>
+      <div class="verdict-item primary"><span>{{ "后期优化验收" if report.optimization else "是否可发布" }}</span><b>{{ report.publish_recommendation }}</b></div>
+      {% if report.optimization %}
+      <div class="verdict-item"><span>验收目标</span><b>{{ report.optimization.target }} / 100，内容拆解另评</b></div>
+      {% else %}
       <div class="verdict-item"><span>是否适合投放</span><b>{{ "适合投放" if report.overall_score >= 85 else "建议优化后再投放" }}</b></div>
+      {% endif %}
       <div class="verdict-item"><span>是否建议重剪</span><b>{{ "是" if report.module_scores.editing_rhythm < 10 else "否" }}</b></div>
       <div class="verdict-item"><span>是否建议重调色</span><b>{{ "是" if report.module_scores.color_grading < 14 else "否" }}</b></div>
       <div class="verdict-item"><span>是否建议重新导出</span><b>{{ "是" if report.module_scores.export_specs < 4 else "否" }}</b></div>

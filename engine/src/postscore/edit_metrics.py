@@ -46,6 +46,7 @@ def analyze_editing_rhythm(keyframes: list[Keyframe], duration_seconds: float) -
         diff = float(np.mean(np.abs(current - previous)))
         changes.append(
             {
+                "start": grayscale_frames[index - 1]["timestamp"],
                 "timestamp": grayscale_frames[index]["timestamp"],
                 "timestamp_label": grayscale_frames[index]["timestamp_label"],
                 "path": grayscale_frames[index]["path"],
@@ -56,7 +57,7 @@ def analyze_editing_rhythm(keyframes: list[Keyframe], duration_seconds: float) -
     black_frames = [row for row in grayscale_frames if row["brightness"] < 8]
     repeated_changes = [row for row in changes if row["diff"] < 1.5]
     shot_changes = [row for row in changes if row["diff"] > 22]
-    static_segments = _merge_static_segments(repeated_changes)
+    static_segments = _merge_static_segments(changes)
     shot_count = max(len(shot_changes) + 1, 1)
     avg_shot_length = duration_seconds / shot_count if duration_seconds else 0.0
     return {
@@ -71,19 +72,18 @@ def analyze_editing_rhythm(keyframes: list[Keyframe], duration_seconds: float) -
 
 
 def _merge_static_segments(changes: list[dict]) -> list[dict[str, float]]:
-    if not changes:
-        return []
     segments: list[dict[str, float]] = []
-    start = changes[0]["timestamp"]
-    last = start
-    for row in changes[1:]:
-        if row["timestamp"] - last <= 1.5:
-            last = row["timestamp"]
+    start: float | None = None
+    for row in changes:
+        if row["diff"] >= 1.5:
+            start = None
             continue
-        if last - start >= 2.0:
-            segments.append({"start": start, "end": last})
-        start = row["timestamp"]
-        last = start
-    if last - start >= 2.0:
-        segments.append({"start": start, "end": last})
+        if start is None:
+            start = row["start"]
+        end = row["timestamp"]
+        if end - start >= 2.0:
+            if segments and segments[-1]["start"] == start:
+                segments[-1]["end"] = end
+            else:
+                segments.append({"start": start, "end": end})
     return segments

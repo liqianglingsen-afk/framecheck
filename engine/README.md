@@ -205,3 +205,7 @@ python -m postscore review --mock --html --json
 - 平台专属导出规范库。
 - 可选本地 VLM 或云端 AI 审美判断。
 - 历史评分对比。
+
+## 短视频优化目标
+
+`postscore review clip.mp4 --preset short_social --html --json` 默认以 85/100 验收当前文件的后期技术质量。单条与批量均可用 `--optimization-target 90` 提高目标，或在电商、品牌预设上启用短视频验收。HTML、JSON 和命令行会区分达标、未达标、示例与待核。用相同预设和抽样参数复评导出文件；配套 Skill 提供剪辑清单和条件性补拍方案。

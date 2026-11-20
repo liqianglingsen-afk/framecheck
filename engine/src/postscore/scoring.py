@@ -4,7 +4,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from .models import AudioMetrics, Issue, Keyframe, ReviewReport, VideoInfo
+from .models import AudioMetrics, Issue, Keyframe, OptimizationCheck, ReviewReport, VideoInfo
 from .utils import seconds_to_label
 
 
@@ -45,6 +45,24 @@ def publish_recommendation(score: float) -> str:
     return "需要重做或大幅返工"
 
 
+MINIMUM_OPTIMIZATION_SCORE = 85
+
+
+def check_optimization(score: float, target: int, *, measured: bool, mock: bool) -> OptimizationCheck:
+    if not MINIMUM_OPTIMIZATION_SCORE <= target <= 100:
+        raise ValueError("短视频优化目标须在 85 到 100 之间")
+    if mock:
+        return OptimizationCheck(target=target, gap=None, status="mock", verdict="示例数据，待实片复评")
+    if not measured:
+        return OptimizationCheck(target=target, gap=None, status="unverified", verdict="检测证据不足，待实片复评")
+    if score < target:
+        gap = round(target - score, 6)
+        return OptimizationCheck(target=target, gap=gap, status="below_target",
+                                 verdict=f"距后期目标 {target} 分还差 {gap:g} 分，优先试剪现有素材")
+    return OptimizationCheck(target=target, gap=0, status="meets_target",
+                             verdict=f"该文件后期评分已达到 {target} 分目标")
+
+
 def score_report(
     video_info: VideoInfo,
     visual_metrics: dict[str, Any] | None = None,
@@ -55,6 +73,8 @@ def score_report(
     keyframes: list[Keyframe] | None = None,
     preset: str = "default",
     mode: str = "deep",
+    optimization_target: int | None = None,
+    mock: bool = False,
 ) -> ReviewReport:
     """Convert measured metrics into module scores and evidence-backed issues."""
     visual_metrics = visual_metrics or {}
@@ -84,11 +104,24 @@ def score_report(
     overall = round(sum(module_scores.values()), 1)
     issues.sort(key=lambda item: (_severity_rank(item.severity), item.score_impact), reverse=True)
 
+    if optimization_target is None and preset == "short_social":
+        optimization_target = MINIMUM_OPTIMIZATION_SCORE
+    optimization = None
+    if optimization_target is not None:
+        measured = bool(
+            video_info.duration_seconds > 0 and keyframes and visual_metrics.get("frames")
+            and color_metrics.get("frames") and subtitle_metrics.get("frames")
+            and edit_metrics.get("shot_count_estimate") and audio_metrics is not None
+            and (audio.peak_db is not None or (video_info.audio_codec == "none" and not audio.has_audio))
+        )
+        optimization = check_optimization(overall, optimization_target, measured=measured, mock=mock)
+
     return ReviewReport(
+        optimization=optimization,
         video_info=video_info,
         overall_score=overall,
         grade=grade_for_score(overall),
-        publish_recommendation=publish_recommendation(overall),
+        publish_recommendation=optimization.verdict if optimization else publish_recommendation(overall),
         module_scores=module_scores,
         module_score_max=module_max,
         module_names=module_names,
@@ -96,7 +129,7 @@ def score_report(
         keyframes=keyframes,
         audio_metrics=audio,
         export_recommendations=_export_recommendations(video_info, preset),
-        revision_checklist=_revision_checklist(issues),
+        revision_checklist=_revision_checklist(issues, detailed=optimization is not None),
         preset=preset,
         mode=mode,
     )
@@ -174,7 +207,7 @@ def _score_visual(metrics: dict[str, Any], issues: list[Issue], impacts: dict[st
             severity="medium",
             score_impact=3,
             problem="低清晰度关键帧比例偏高",
-            recommendation="定位低清晰度时间点，优先检查缩放、降噪过度、运动模糊和压缩损失。",
+            recommendation="在证据帧前后各看 0.5 秒，以原片 100% 核对主体。若同一动作有更清晰的相邻帧，修剪虚焦首尾，保留动作起止和口播。",
             timestamp_start=_time(worst),
             evidence_image=_path(worst),
             metric_value=low_ratio,
@@ -303,7 +336,7 @@ def _score_editing(metrics: dict[str, Any], issues: list[Issue], impacts: dict[s
             severity="high",
             score_impact=4,
             problem="检测到黑场关键帧",
-            recommendation="检查转场、素材断点和导出错误；非设计黑场应直接删除或补画面。",
+            recommendation="在标记帧前后逐帧定位黑场边界。有意淡出保留；误插黑帧用 trim/atrim 联动剪除，若需保留台词则用相邻有效镜头覆盖。",
             timestamp_start=_time(black),
             evidence_image=_path(black),
             metric_value=len(metrics.get("black_frames") or []),
@@ -318,7 +351,7 @@ def _score_editing(metrics: dict[str, Any], issues: list[Issue], impacts: dict[s
             severity="medium",
             score_impact=3,
             problem="重复帧或静止变化比例偏高",
-            recommendation="检查卡顿、冻结帧和 B-roll 留白；短视频建议增强画面变化。",
+            recommendation="逐帧区分卡顿、读屏停留与有意静止。对多余停顿标记入出点，用 trim/atrim 联动剪除，回看动作与口播是否连贯。",
             timestamp_start=None,
             metric_value=repeated_ratio,
             threshold="<= 0.12",
@@ -332,7 +365,7 @@ def _score_editing(metrics: dict[str, Any], issues: list[Issue], impacts: dict[s
             severity="medium",
             score_impact=3,
             problem="静止画面持续过久",
-            recommendation="缩短静止段，增加切镜、推拉、字幕动画或产品细节镜头。",
+            recommendation="回看标记区间；若字幕已读完且动作结束，在最后一个有效动作后留约 0.3 秒再切。若必须保留口播，在原声上覆盖同次演示的现有特写。",
             timestamp_start=static.get("start"),
             timestamp_end=static.get("end"),
             metric_value=static,
@@ -347,7 +380,7 @@ def _score_editing(metrics: dict[str, Any], issues: list[Issue], impacts: dict[s
             severity="medium",
             score_impact=3,
             problem="短视频镜头平均时长偏长",
-            recommendation="前 3 秒加快信息推进，减少长镜头停顿，提升移动端留存。",
+            recommendation="在前 3 秒找第一处可见结果；有对应现成镜头时试剪 0.8–1.2 秒预览，并在完整段落兑现。复看是否仍能分清先后。",
             metric_value=avg_shot,
             threshold="<= 4.5s for short_social",
         )
@@ -362,7 +395,7 @@ def _score_audio(audio: AudioMetrics, issues: list[Issue], impacts: dict[str, fl
             severity="high",
             score_impact=8,
             problem="未检测到可分析音轨",
-            recommendation="确认是否需要声音；如果是商业视频，建议补充人声、音乐或环境声并重新导出。",
+            recommendation="先核对交付是否要求有声，再从工程找已有同期声或音乐轨，按同一动作对齐并重新导出。刻意静音要保留创作意图。",
             metric_value="no audio",
             threshold="has audio track",
         )
@@ -375,7 +408,7 @@ def _score_audio(audio: AudioMetrics, issues: list[Issue], impacts: dict[str, fl
             severity="medium",
             score_impact=4,
             problem="整体音量偏低",
-            recommendation="提升主声音量，并用响度表检查平台推荐响度范围。",
+            recommendation="在现有混音上用 volume 每次试增 3 dB，先试听人声，再复测均值与峰值；峰值接近 -1 dB 时停止加增益。",
             metric_value=audio.approx_loudness_db,
             threshold=">= -30 dB mean volume approximation",
         )
@@ -387,7 +420,7 @@ def _score_audio(audio: AudioMetrics, issues: list[Issue], impacts: dict[str, fl
             severity="high" if audio.clipping_risk else "medium",
             score_impact=5 if audio.clipping_risk else 3,
             problem="峰值过高，有爆音风险",
-            recommendation="降低总线峰值，加入限幅器，导出前检查是否削波。",
+            recommendation="先降低现有混音总线约 2 dB，导出后用 volumedetect 检查峰值 ≤ -1 dB 并试听原爆点。已录坏的段落优先找同期备轨。",
             metric_value=audio.peak_db,
             threshold="<= -1 dB peak",
         )
@@ -462,7 +495,7 @@ def _score_commercial(
             severity="medium",
             score_impact=impact,
             problem="主体区域清晰度不足",
-            recommendation="优先保证产品或人物所在中心区域清晰，必要时重新选镜头或提高导出质量。",
+            recommendation="以原片 100% 回看主体位置。主体确实失焦时，用同次操作的清晰近景覆盖对应时段，保留原声；主体在边缘时人工核对并记录。",
             timestamp_start=_time(first),
             evidence_image=_path(first),
             metric_value=center_sharpness,
@@ -579,11 +612,21 @@ def _export_recommendations(video: VideoInfo, preset: str) -> list[str]:
     return recommendations
 
 
-def _revision_checklist(issues: list[Issue]) -> dict[str, list[str]]:
+def _revision_checklist(issues: list[Issue], *, detailed: bool = False) -> dict[str, list[str]]:
     checklist = {"P0": [], "P1": [], "P2": []}
     for issue in issues:
         label = seconds_to_label(issue.timestamp_start)
-        checklist[issue.priority].append(f"{label} - {issue.problem}：{issue.recommendation}")
+        if detailed:
+            if issue.timestamp_start is None:
+                label = "整片检测"
+            elif issue.timestamp_end is not None:
+                label += "–" + seconds_to_label(issue.timestamp_end)
+            else:
+                label += " 取样点"
+        item = f"{label} - {issue.problem}：{issue.recommendation}"
+        if detailed:
+            item += f" 复查指标 {issue.threshold}。"
+        checklist[issue.priority].append(item)
     return checklist
 
 
@@ -595,7 +638,7 @@ def _first(items: Any) -> Any:
 
 def _time(item: Any) -> float | None:
     if isinstance(item, dict):
-        return item.get("timestamp") or item.get("start")
+        return item.get("timestamp") if item.get("timestamp") is not None else item.get("start")
     return None
 
 

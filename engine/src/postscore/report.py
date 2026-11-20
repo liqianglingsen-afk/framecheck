@@ -101,6 +101,7 @@ def create_mock_report(
     source: str = "mock://demo",
     resolved_path: str = "mock://demo",
     filename: str = "mock_video.mp4",
+    optimization_target: int | None = None,
 ) -> ReviewReport:
     """Create evidence-shaped mock data for report and CLI tests without a real video."""
     assets_dir = ensure_dir(output_dir / "assets" / "mock_keyframes")
@@ -169,7 +170,8 @@ def create_mock_report(
         "dense_bottom_frames": [{"path": str(keyframe_path), "timestamp": 12.0}],
         "unsafe_margin_frames": [],
     }
-    return score_report(video, visual, color, editing, audio, subtitles, keyframes, preset=preset, mode=mode)
+    return score_report(video, visual, color, editing, audio, subtitles, keyframes, preset=preset, mode=mode,
+                        optimization_target=optimization_target, mock=True)
 
 
 def _module_cards(report: ReviewReport) -> list[dict[str, Any]]:
@@ -219,13 +221,11 @@ def _asset_path(path: str | None, output_dir: Path) -> str:
     if not path:
         return ""
     path_obj = Path(path)
-    if not path_obj.is_absolute():
-        if path_obj.parts and path_obj.parts[0] == output_dir.name:
-            return Path(*path_obj.parts[1:]).as_posix()
-        return path_obj.as_posix()
     try:
         return path_obj.resolve().relative_to(output_dir.resolve()).as_posix()
-    except Exception:
+    except ValueError:
+        if not path_obj.is_absolute() and path_obj.parts and path_obj.parts[0] == output_dir.name:
+            return Path(*path_obj.parts[1:]).as_posix()
         return path_obj.as_posix()
 
 
@@ -297,12 +297,14 @@ def _fallback_html(report: ReviewReport, context: dict[str, Any]) -> str:
         for frame in report.keyframes[:8]
     )
     verdict_items = [
-        ("是否可发布", report.publish_recommendation),
+        ("后期优化验收" if report.optimization else "是否可发布", report.publish_recommendation),
         ("是否适合投放", "适合投放" if report.overall_score >= 85 else "建议优化后再投放"),
         ("是否建议重剪", "是" if report.module_scores.get("editing_rhythm", 0) < 10 else "否"),
         ("是否建议重调色", "是" if report.module_scores.get("color_grading", 0) < 14 else "否"),
         ("是否建议重新导出", "是" if report.module_scores.get("export_specs", 0) < 4 else "否"),
     ]
+    if report.optimization:
+        verdict_items[1] = ("验收目标", f"{report.optimization.target} / 100，内容拆解另评")
     verdict_html = "".join(
         "<div class='verdict-item{primary}'><span>{label}</span><b>{value}</b></div>".format(
             primary=" primary" if idx == 0 else "",

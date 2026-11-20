@@ -17,9 +17,10 @@ from .color_metrics import analyze_color_grading
 from .edit_metrics import analyze_editing_rhythm
 from .frame_sampler import sample_frames
 from .ingest import VIDEO_EXTENSIONS, is_url, resolve_input
+from .models import AudioMetrics
 from .probe import probe_video
 from .report import create_mock_report, write_reports
-from .scoring import score_report
+from .scoring import MINIMUM_OPTIMIZATION_SCORE, score_report
 from .subtitle_metrics import analyze_subtitles_graphics
 from .utils import ensure_dir, open_in_default_app, package_root, print_console, relative_or_absolute, safe_slug, seconds_to_label
 from .visual_metrics import analyze_visual_quality
@@ -73,6 +74,9 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--recursive", action="store_true", help="扫描文件夹时递归包含子文件夹")
     batch.add_argument("--mock", action="store_true", help="使用 mock 数据生成示例报告，不需要真实视频")
     batch.add_argument("--no-index", action="store_true", help="不生成批量总览 HTML，仅输出 CSV 和单条报告")
+    for command in (review, batch):
+        command.add_argument("--optimization-target", type=int, choices=range(MINIMUM_OPTIMIZATION_SCORE, 101),
+                             metavar="85..100", help="短视频后期验收目标；short_social 默认 85，其他预设可显式启用")
     return parser
 
 
@@ -97,7 +101,7 @@ def run_review(args: argparse.Namespace) -> int:
     write_json = True if not args.json else bool(args.json)
     try:
         if args.mock:
-            report = create_mock_report(output_dir, preset=args.preset, mode=args.mode)
+            report = create_mock_report(output_dir, preset=args.preset, mode=args.mode, optimization_target=args.optimization_target)
         else:
             if not args.source:
                 raise RuntimeError("请提供本地视频路径或可下载公开视频链接；示例：python -m postscore review \"video.mp4\" --html")
@@ -136,6 +140,7 @@ def run_batch(args: argparse.Namespace) -> int:
                     output_dir,
                     preset=args.preset,
                     mode=args.mode,
+                    optimization_target=args.optimization_target,
                     source=target.source,
                     resolved_path=target.source,
                     filename=_mock_filename_for_target(target),
@@ -182,7 +187,8 @@ def _analyze_video(args: argparse.Namespace, output_dir: Path):
     visual = analyze_visual_quality(keyframes)
     color = analyze_color_grading(keyframes)
     editing = analyze_editing_rhythm(keyframes, video_info.duration_seconds)
-    audio = analyze_audio_quality(video_path)
+    audio = (analyze_audio_quality(video_path) if video_info.audio_codec != "none"
+             else AudioMetrics(has_audio=False, recommendations=["视频未检测到音轨。"]))
     subtitles = analyze_subtitles_graphics(keyframes)
     optional_ai_review(keyframes, max_frames=max_ai_frames)
     return score_report(
@@ -195,6 +201,7 @@ def _analyze_video(args: argparse.Namespace, output_dir: Path):
         keyframes=keyframes,
         preset=args.preset,
         mode=args.mode,
+        optimization_target=args.optimization_target,
     )
 
 
@@ -251,6 +258,7 @@ def _expand_batch_sources(sources: Sequence[str], recursive: bool = False) -> li
 def _batch_success_row(index: int, target: BatchTarget, report, paths: dict[str, Path], elapsed_seconds: float) -> dict[str, object]:
     display_name = _report_display_name(report.video_info.filename, target)
     top_issues = " | ".join(issue.problem for issue in report.issues[:5]) or "未发现明显扣分项"
+    optimization = report.optimization
     return {
         "index": index,
         "status": "success",
@@ -264,6 +272,9 @@ def _batch_success_row(index: int, target: BatchTarget, report, paths: dict[str,
         "score": report.overall_score,
         "grade": report.grade,
         "recommendation": report.publish_recommendation,
+        "optimization_target": optimization.target if optimization else "",
+        "optimization_gap": optimization.gap if optimization else "",
+        "optimization_status": optimization.status if optimization else "",
         "duration": report.video_info.duration_seconds,
         "resolution": f"{report.video_info.width}x{report.video_info.height}",
         "fps": round(report.video_info.fps, 2),
@@ -316,6 +327,9 @@ def _write_batch_outputs(results: list[dict[str, object]], output_dir: Path, bat
         "score",
         "grade",
         "recommendation",
+        "optimization_target",
+        "optimization_gap",
+        "optimization_status",
         "duration",
         "resolution",
         "fps",
@@ -392,13 +406,17 @@ def _render_batch_row(row: dict[str, object], output_dir: Path) -> str:
     source_html = _source_html(row)
     report_links = _report_links(row, output_dir)
     score = html.escape(str(row["score"]))
+    target_detail = ""
+    if row.get("optimization_target"):
+        verdict = html.escape(str(row["recommendation"]))
+        target_detail = f'<div class="muted">目标 {row["optimization_target"]} 分 · {verdict}</div>'
     grade = html.escape(str(row["grade"]))
     issues = html.escape(str(row["top_issues"] or row["error"]))
     return f"""<tr>
   <td data-label="#">{row["index"]}</td>
   <td data-label="状态"><span class="status {status}">{html.escape(status)}</span></td>
   <td data-label="视频名称与来源"><strong>{display_name}</strong><div class="muted">{source_label}</div>{source_html}</td>
-  <td data-label="分数"><span class="score">{score}</span></td>
+  <td data-label="分数"><span class="score">{score}</span>{target_detail}</td>
   <td data-label="等级">{grade}</td>
   <td data-label="主要问题" class="issues">{issues}</td>
   <td data-label="报告">{report_links}</td>
@@ -433,7 +451,8 @@ def _print_batch_summary(results: list[dict[str, object]], paths: dict[str, Path
     lines = [f"批量分析完成：成功 {success_count} / 失败 {failed_count} / 总数 {len(results)}"]
     for row in results:
         if row["status"] == "success":
-            lines.append(f"{row['index']}. {row['display_name']}：{row['score']} / {row['grade']} - {row['top_issues']}")
+            detail = f" · {row['recommendation']}" if row.get("optimization_target") else ""
+            lines.append(f"{row['index']}. {row['display_name']}：{row['score']} / {row['grade']}{detail} - {row['top_issues']}")
         else:
             lines.append(f"{row['index']}. {row['display_name']}：失败 - {row['error']}")
     if "html" in paths:
@@ -479,8 +498,10 @@ def _print_summary(report, paths: dict[str, Path]) -> None:
     lines = [
         f"总分：{report.overall_score}",
         f"等级：{report.grade}",
-        "Top 5 问题：",
     ]
+    if report.optimization:
+        lines.append(f"后期优化目标 {report.optimization.target} 分 · {report.optimization.verdict}")
+    lines.append("Top 5 问题：")
     if top:
         for index, issue in enumerate(top, start=1):
             lines.append(f"{index}. [{issue.severity}] {issue.problem} - {issue.recommendation}")
